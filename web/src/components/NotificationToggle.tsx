@@ -1,52 +1,38 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
 
 export default function NotificationToggle() {
-    const [permission, setPermission] = useState<NotificationPermission | null>(null);
+    const [permission, setPermission] = useState<string>('loading');
 
     useEffect(() => {
-        // Check initial permission status
-        if ("Notification" in window) {
+        // Determine initial state
+        if (!("Notification" in window)) {
+            setPermission('unsupported');
+        } else {
             setPermission(Notification.permission);
         }
     }, []);
 
     const requestPermission = async () => {
-        if (!("Notification" in window)) {
-            alert("This browser does not support desktop notifications.");
-            return;
-        }
-
         const result = await Notification.requestPermission();
         setPermission(result);
 
-        if (result === "granted") {
-            const registration = await navigator.serviceWorker.ready;
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-            });
-
-            // Send to your new API route
-            await fetch("/api/push/subscribe", {
-                method: "POST",
-                body: JSON.stringify(subscription),
-                headers: { "Content-Type": "application/json" }
-            });
-
-            console.log("Subscription saved to Sanity!");
+        if (result === 'granted') {
+            // Logic to trigger registration
+            window.location.reload(); // Quick way to ensure SW picks up permission change
         }
     };
 
-    if (permission === "granted") return <p>Notifications enabled! ✅</p>;
-    if (permission === "denied") return <p>Notifications blocked. ❌</p>;
+    if (permission === 'loading') return null;
+    if (permission === 'unsupported') return <p>Notifications not supported.</p>;
+    if (permission === 'granted') return <p>Notifications are enabled!</p>;
 
+    // This will always show if status is 'default' or 'denied'
     return (
         <button
             onClick={requestPermission}
-            className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition"
+            className="bg-blue-600 text-white px-4 py-2 rounded"
         >
             Enable Notifications
         </button>
