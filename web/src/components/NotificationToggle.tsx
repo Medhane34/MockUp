@@ -15,48 +15,35 @@ export default function NotificationToggle() {
     }, []);
 
     const handleEnableClick = async () => {
-        console.log("1. [Diagnostic] Button clicked. Starting flow...");
-
-        if (!("Notification" in window)) {
-            console.log("2. [Diagnostic] Notifications not supported on this browser.");
-            return;
-        }
-
-        console.log("2. [Diagnostic] Permission status BEFORE request:", Notification.permission);
+        if (!("Notification" in window)) return;
 
         try {
-            // This is where the browser instantly returns "denied" if you've blocked it previously
             const result = await Notification.requestPermission();
-            console.log("3. [Diagnostic] Permission result returned from browser:", result);
-
             setPermission(result);
 
-            if (result === "granted") {
-                console.log("4. [Diagnostic] Permission GRANTED. Checking Service Worker...");
+            if (result === "granted" && "serviceWorker" in navigator) {
+                const registration = await navigator.serviceWorker.ready;
+                console.log("Service Worker ready for push subscription:", registration);
 
-                if ("serviceWorker" in navigator) {
-                    const registration = await navigator.serviceWorker.ready;
-                    console.log("5. [Diagnostic] Service Worker ready. Subscribing...");
+                // 1. Create the subscription (THIS WAS MISSING)
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+                });
 
-                    const subscription = await registration.pushManager.subscribe({
-                        userVisibleOnly: true,
-                        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-                    });
+                // 2. Send it to your API (THIS WAS MISSING)
+                // Important: Use .toJSON() to correctly serialize the subscription object
+                const response = await fetch("/api/push/subscribe", {
+                    method: "POST",
+                    body: JSON.stringify(subscription.toJSON()),
+                    headers: { "Content-Type": "application/json" }
+                });
 
-                    console.log("6. [Diagnostic] Subscription object received:", subscription);
-
-                    await fetch("/api/push/subscribe", {
-                        method: "POST",
-                        body: JSON.stringify(subscription),
-                        headers: { "Content-Type": "application/json" }
-                    });
-                    console.log("7. [Diagnostic] Subscription sent to API successfully!");
-                }
-            } else {
-                console.log("4. [Diagnostic] Permission was NOT GRANTED (Result was: " + result + ")");
+                const data = await response.json();
+                console.log("API Response:", data);
             }
         } catch (error) {
-            console.error("4. [Diagnostic] Critical error in subscription flow:", error);
+            console.error("Error in subscription flow:", error);
         }
     };
 
