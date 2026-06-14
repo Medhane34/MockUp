@@ -4,7 +4,7 @@ import withPWAInit from "@ducanh2912/next-pwa";
 // 1. Initialize the PWA configuration
 const withPWA = withPWAInit({
   dest: "public",
-  customWorkerSrc: "worker/index.ts",
+  customWorkerSrc: "worker",
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
   reloadOnOnline: true,
