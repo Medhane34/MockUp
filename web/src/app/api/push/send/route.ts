@@ -13,6 +13,19 @@ export async function POST(req: Request) {
     if (req.headers.get("x-api-key") !== "xX0vkdQ0j9") {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // 2. Build the response headers
+    const headers = {
+        "Access-Control-Allow-Origin": "*", // Or specifically: "https://aligoo.sanity.studio"
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, x-api-key",
+    };
+
+    // 3. Handle Preflight (OPTIONS request)
+    if (req.method === 'OPTIONS') {
+        return new NextResponse(null, { status: 204, headers });
+    }
+
+
     // 2. Fetch the latest notification campaign from Sanity
     const campaign = await client.fetch(
         `*[_type == "notificationCampaign"] | order(_createdAt desc)[0]`
@@ -39,5 +52,5 @@ export async function POST(req: Request) {
         )
     );
 
-    return NextResponse.json({ message: "Campaign sent", results });
+    return NextResponse.json({ message: "Campaign sent", results }, { status: 200, headers });
 }
