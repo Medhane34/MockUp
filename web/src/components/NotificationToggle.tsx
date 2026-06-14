@@ -15,33 +15,48 @@ export default function NotificationToggle() {
     }, []);
 
     const handleEnableClick = async () => {
-        if (!("Notification" in window)) return;
+        console.log("1. [Diagnostic] Button clicked. Starting flow...");
+
+        if (!("Notification" in window)) {
+            console.log("2. [Diagnostic] Notifications not supported on this browser.");
+            return;
+        }
+
+        console.log("2. [Diagnostic] Permission status BEFORE request:", Notification.permission);
 
         try {
+            // This is where the browser instantly returns "denied" if you've blocked it previously
             const result = await Notification.requestPermission();
+            console.log("3. [Diagnostic] Permission result returned from browser:", result);
+
             setPermission(result);
 
-            if (result === "granted" && "serviceWorker" in navigator) {
-                const registration = await navigator.serviceWorker.ready;
+            if (result === "granted") {
+                console.log("4. [Diagnostic] Permission GRANTED. Checking Service Worker...");
 
-                // 1. Subscribe the user
-                const subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    // YOU MUST INCLUDE YOUR VAPID PUBLIC KEY HERE
-                    applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-                });
+                if ("serviceWorker" in navigator) {
+                    const registration = await navigator.serviceWorker.ready;
+                    console.log("5. [Diagnostic] Service Worker ready. Subscribing...");
 
-                // 2. Send the subscription object to your API
-                await fetch("/api/push/subscribe", {
-                    method: "POST",
-                    body: JSON.stringify(subscription),
-                    headers: { "Content-Type": "application/json" }
-                });
+                    const subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+                    });
 
-                console.log("Subscription saved to Sanity!");
+                    console.log("6. [Diagnostic] Subscription object received:", subscription);
+
+                    await fetch("/api/push/subscribe", {
+                        method: "POST",
+                        body: JSON.stringify(subscription),
+                        headers: { "Content-Type": "application/json" }
+                    });
+                    console.log("7. [Diagnostic] Subscription sent to API successfully!");
+                }
+            } else {
+                console.log("4. [Diagnostic] Permission was NOT GRANTED (Result was: " + result + ")");
             }
         } catch (error) {
-            console.error("Error in subscription flow:", error);
+            console.error("4. [Diagnostic] Critical error in subscription flow:", error);
         }
     };
 
