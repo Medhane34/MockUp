@@ -13,30 +13,30 @@ export default function manifest(): MetadataRoute.Manifest {
         orientation: "portrait-primary",
         icons: [
             {
-                src: "icon.jpeg",
+                src: "/icon.jpeg",
                 sizes: "192x192",
-                type: "image/png",
+                type: "image/jpeg",
                 purpose: "maskable"
             },
             {
-                src: "icon.jpeg",
+                src: "/icon.jpeg",
                 sizes: "512x512",
-                type: "image/png",
+                type: "image/jpeg",
                 purpose: "maskable"
             },
         ],
         screenshots: [
             {
-                src: "icon.jpeg",
+                src: "/icon.jpeg",
                 sizes: "1280x720",
-                type: "image/png",
+                type: "image/jpeg",
                 form_factor: "wide",
                 label: "Aligoo Desktop View"
             },
             {
-                src: "icon.jpeg",
+                src: "/icon.jpeg",
                 sizes: "750x1334",
-                type: "image/png",
+                type: "image/jpeg",
                 form_factor: "narrow",
                 label: "Aligoo Mobile View"
             }
