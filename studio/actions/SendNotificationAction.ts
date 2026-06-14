@@ -3,6 +3,8 @@
 import { DocumentActionComponent, DocumentActionProps } from 'sanity';
 
 export const SendNotificationAction: DocumentActionComponent = (props: DocumentActionProps) => {
+    const WEB_URL = "https://aligoo-mockup.vercel.app";
+
     return {
         label: 'Send Notification',
         onHandle: async () => {
@@ -13,7 +15,7 @@ export const SendNotificationAction: DocumentActionComponent = (props: DocumentA
             // 2. Trigger your API route
             // IMPORTANT: Add a secret key to prevent strangers from spamming your users!
             try {
-                const response = await fetch('/api/push/send', {
+                const response = await fetch(`${WEB_URL}/api/push/send`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
