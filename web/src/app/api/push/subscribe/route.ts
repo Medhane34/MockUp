@@ -1,9 +1,7 @@
-import { client } from "@/sanity/client";
+import { client } from "@/sanity/client"; // Ensure this client has the WRITE token configured
 import { NextResponse } from "next/server";
-// You will need to install: npm install web-push @types/web-push
 import webpush from "web-push";
 
-// Initialize webpush with your keys
 webpush.setVapidDetails(
     "mailto:aligoodigital@gmail.com",
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
@@ -11,10 +9,24 @@ webpush.setVapidDetails(
 );
 
 export async function POST(req: Request) {
-    const subscription = await req.json();
+    try {
+        const subscription = await req.json();
 
-    // HERE: Save 'subscription' to Sanity
-    client.create({ _type: 'pushSubscription', ...subscription })
+        // 1. Await the operation. Without this, the function exits before Sanity writes the data.
+        // 2. Explicitly map fields. 'keys' is often a nested object, 
+        //    ensure your Sanity schema has a 'keys' field of type 'object'.
+        const result = await client.create({
+            _type: 'pushSubscription',
+            endpoint: subscription.endpoint,
+            keys: subscription.keys,
+        });
 
-    return NextResponse.json({ message: "Subscription saved" });
+        console.log("Sanity write successful:", result._id);
+        return NextResponse.json({ message: "Subscription saved", id: result._id }, { status: 200 });
+
+    } catch (error) {
+        // This is crucial. If this fails, the error will appear in Vercel Logs.
+        console.error("Sanity Write Error:", error);
+        return NextResponse.json({ error: "Failed to save subscription" }, { status: 500 });
+    }
 }
