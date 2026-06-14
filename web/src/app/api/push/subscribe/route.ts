@@ -9,6 +9,12 @@ webpush.setVapidDetails(
 );
 
 export async function POST(req: Request) {
+    // DEBUG LOGS - These will appear in your Vercel logs
+    console.log("DEBUG - Project ID:", process.env.SANITY_STUDIO_PROJECT_ID);
+    console.log("DEBUG - API Token exists:", !!process.env.SANITY_API_WRITE_TOKEN);
+    if (!process.env.SANITY_STUDIO_PROJECT_ID) {
+        return NextResponse.json({ error: "Missing Project ID in environment" }, { status: 500 });
+    }
     try {
         const subscription = await req.json();
 
