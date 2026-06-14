@@ -18,17 +18,30 @@ export default function NotificationToggle() {
         if (!("Notification" in window)) return;
 
         try {
-            // Must be inside a click handler to count as a browser "User Gesture"
             const result = await Notification.requestPermission();
             setPermission(result);
 
             if (result === "granted" && "serviceWorker" in navigator) {
-                // Safe check to verify if next-pwa actually has a compiled worker active
                 const registration = await navigator.serviceWorker.ready;
-                console.log("Service Worker ready for push subscription:", registration);
+
+                // 1. Subscribe the user
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    // YOU MUST INCLUDE YOUR VAPID PUBLIC KEY HERE
+                    applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+                });
+
+                // 2. Send the subscription object to your API
+                await fetch("/api/push/subscribe", {
+                    method: "POST",
+                    body: JSON.stringify(subscription),
+                    headers: { "Content-Type": "application/json" }
+                });
+
+                console.log("Subscription saved to Sanity!");
             }
         } catch (error) {
-            console.error("Error requesting notification permission:", error);
+            console.error("Error in subscription flow:", error);
         }
     };
 
