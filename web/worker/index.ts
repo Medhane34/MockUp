@@ -11,21 +11,25 @@ declare const self: ServiceWorkerGlobalScope;
 const swSelf = self as unknown as ServiceWorkerGlobalScope;
 
 swSelf.addEventListener('push', (event: PushEvent) => {
-  if (!event.data) return;
+  let data = { title: 'Notification', body: '' };
 
-  try {
-    const data = event.data.json();
-
-    const options: NotificationOptions = {
-      body: data.body || '',
-      icon: '/icon.jpeg',
-      badge: '/icon.jpeg',
-    };
-
-    event.waitUntil(
-      swSelf.registration.showNotification(data.title || 'Notification', options)
-    );
-  } catch (error) {
-    console.error('Error parsing push notification data:', error);
+  if (event.data) {
+    try {
+      // Attempt to parse as JSON first
+      data = event.data.json();
+    } catch (e) {
+      // Fallback: If it's not JSON, treat it as plain text
+      data = { title: 'New Message', body: event.data.text() };
+    }
   }
+
+  const options: NotificationOptions = {
+    body: data.body,
+    icon: '/icon.jpeg',
+    badge: '/icon.jpeg',
+  };
+
+  event.waitUntil(
+    swSelf.registration.showNotification(data.title, options)
+  );
 });
