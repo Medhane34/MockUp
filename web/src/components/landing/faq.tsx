@@ -1,4 +1,4 @@
-"use client";
+/* "use client";
 
 import React from "react";
 import { Accordion, AccordionItem } from "@heroui/react";
@@ -30,8 +30,8 @@ export const FAQ = () => {
           <h2 className="text-4xl font-bold tracking-tight mb-4">Common Inquiries</h2>
           <p className="text-default-500">Everything you need to know about starting your journey with Aligoo.</p>
         </div>
-        
-        <Accordion variant="splitted" selectionMode="multiple" className="gap-4">
+
+        <Accordion variant="light" selectionMode="multiple" className="gap-4">
           {faqs.map((faq, index) => (
             <AccordionItem
               key={index}
@@ -51,3 +51,4 @@ export const FAQ = () => {
     </section>
   );
 };
+ */

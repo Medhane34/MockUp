@@ -6,7 +6,7 @@ import { Hero } from "@/components/landing/hero";
 import { Services } from "@/components/landing/services";
 import { Process } from "@/components/landing/process";
 import { Portfolio } from "@/components/landing/portfolio";
-import { FAQ } from "@/components/landing/faq";
+/* import { FAQ } from "@/components/landing/faq"; */
 import { Footer } from "@/components/landing/footer";
 import { Card, Avatar, AvatarImage } from "@heroui/react";
 
@@ -66,7 +66,7 @@ export default function Home() {
         <Portfolio />
         <Process />
         <Testimonials />
-        <FAQ />
+        {/* <FAQ /> */}
       </main>
       <Footer />
     </div>
