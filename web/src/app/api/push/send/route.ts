@@ -9,7 +9,11 @@ webpush.setVapidDetails(
 );
 
 export async function POST(req: Request) {
-    // 1. Fetch the latest notification campaign from Sanity
+    // 1. SECURITY CHECK: Verify the secret key
+    if (req.headers.get("x-api-key") !== "xX0vkdQ0j9") {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // 2. Fetch the latest notification campaign from Sanity
     const campaign = await client.fetch(
         `*[_type == "notificationCampaign"] | order(_createdAt desc)[0]`
     );
