@@ -6,11 +6,18 @@ export default function NotificationToggle() {
     const [permission, setPermission] = useState<string>('loading');
 
     useEffect(() => {
-        // Determine initial state
         if (!("Notification" in window)) {
             setPermission('unsupported');
-        } else {
-            setPermission(Notification.permission);
+            return;
+        }
+
+        const currentPermission = Notification.permission;
+        setPermission(currentPermission);
+
+        // AUTO-POPUP ON FIRST VISIT: 
+        // If the user has never been asked before, prompt them immediately
+        if (currentPermission === 'default') {
+            requestPermission();
         }
     }, []);
 
@@ -19,8 +26,10 @@ export default function NotificationToggle() {
         setPermission(result);
 
         if (result === 'granted') {
-            // Logic to trigger registration
-            window.location.reload(); // Quick way to ensure SW picks up permission change
+            // Give the browser a split second to save state before reload
+            setTimeout(() => {
+                window.location.reload();
+            }, 100);
         }
     };
 
@@ -28,7 +37,7 @@ export default function NotificationToggle() {
     if (permission === 'unsupported') return <p>Notifications not supported.</p>;
     if (permission === 'granted') return <p>Notifications are enabled!</p>;
 
-    // This will always show if status is 'default' or 'denied'
+    // Shows if they manually blocked it ('denied') or closed the auto-popup
     return (
         <button
             onClick={requestPermission}
