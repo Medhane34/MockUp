@@ -17,9 +17,7 @@ const withPWA = withPWAInit({
 // 2. Define your base configuration
 const nextConfig: NextConfig = {
   // Add this block to resolve the Turbopack error
-  experimental: {
-    webpackBuildWorker: true,
-  },
+
   images: {
     remotePatterns: [
       {
