@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 import { Providers } from "@/components/providers";
 import PWAProvider from "@/components/PWAProvider";
 import InstallPrompt from "@/components/InstallPrompt";
+import NotificationToggle from "@/components/NotificationToggle";
 
 export default function RootLayout({
   children,
@@ -34,6 +35,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background font-sans text-foreground">
         <InstallPrompt />
+        <NotificationToggle />
         <PWAProvider />
         <Providers>{children}</Providers>
       </body>
