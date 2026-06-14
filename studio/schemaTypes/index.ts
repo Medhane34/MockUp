@@ -1,3 +1,7 @@
-import post from './post'
+import pushSubscription from './pushSubscription';
+import notificationCampaign from './notificationCampaign';
 
-export const schemaTypes = [post]
+export const schemaTypes = [
+    pushSubscription,
+    notificationCampaign
+];
