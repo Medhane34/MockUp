@@ -5,7 +5,15 @@ export type { };
 declare const self: ServiceWorkerGlobalScope;
 const swSelf = self as unknown as ServiceWorkerGlobalScope;
 
-// 1. Handle incoming PUSH messages
+// Force the worker to activate immediately and take control
+swSelf.addEventListener('install', () => {
+  swSelf.skipWaiting();
+});
+
+swSelf.addEventListener('activate', (event) => {
+  event.waitUntil(swSelf.clients.claim());
+});
+
 swSelf.addEventListener('push', (event: PushEvent) => {
   let payload = { title: 'New Update', body: '', url: '/' };
 
@@ -15,7 +23,7 @@ swSelf.addEventListener('push', (event: PushEvent) => {
       payload = {
         title: json.title || 'New Update',
         body: json.body || '',
-        url: json.url || '/' // Extract the URL from the payload
+        url: json.url || '/'
       };
     } catch (e) {
       payload = { title: 'New Update', body: event.data.text(), url: '/' };
@@ -26,8 +34,7 @@ swSelf.addEventListener('push', (event: PushEvent) => {
     body: payload.body,
     icon: '/icon.jpeg',
     badge: '/icon.jpeg',
-    // CRITICAL: We pass the URL into the 'data' field so the click listener can see it
-    data: { url: payload.url }
+    data: { url: payload.url } // Storing the URL here
   };
 
   event.waitUntil(
@@ -35,14 +42,12 @@ swSelf.addEventListener('push', (event: PushEvent) => {
   );
 });
 
-// 2. Handle Notification CLICKS
 swSelf.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
 
-  // Access the URL we passed in the 'data' field above
+  // Ensure we have a valid URL
   const urlToOpen = event.notification.data?.url || '/';
 
-  // This opens the URL in a new window or focuses the existing tab
   event.waitUntil(
     swSelf.clients.openWindow(urlToOpen)
   );
