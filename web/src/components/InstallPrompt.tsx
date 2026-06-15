@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 export default function InstallPrompt() {
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
     const [isShown, setIsShown] = useState(false);
+    const hasTriggered = useRef(false); // Track if we already showed it
 
     useEffect(() => {
-        // 1. Listen for the install prompts
         const handler = (e: any) => {
             e.preventDefault();
             setDeferredPrompt(e);
@@ -15,20 +15,15 @@ export default function InstallPrompt() {
 
         window.addEventListener("beforeinstallprompt", handler);
 
-        // 2. Check if already installed
-        if (window.matchMedia("(display-mode: standalone)").matches) {
-            return;
-        }
-
-        // 3. Trigger logic: Wait 30 seconds or 50% scroll
+        // Logic: Show after 30 seconds OR scroll
         const timer = setTimeout(() => {
-            if (deferredPrompt) setIsShown(true);
+            if (deferredPrompt && !hasTriggered.current) {
+                setIsShown(true);
+                hasTriggered.current = true;
+            }
         }, 30000);
 
-        return () => {
-            window.removeEventListener("beforeinstallprompt", handler);
-            clearTimeout(timer);
-        };
+        return () => window.removeEventListener("beforeinstallprompt", handler);
     }, [deferredPrompt]);
 
     const handleInstall = async () => {
@@ -37,8 +32,8 @@ export default function InstallPrompt() {
         const { outcome } = await deferredPrompt.userChoice;
         if (outcome === "accepted") {
             setIsShown(false);
-            localStorage.setItem("pwa_installed", "true");
         }
+        setDeferredPrompt(null);
     };
 
     if (!isShown) return null;
@@ -49,7 +44,6 @@ export default function InstallPrompt() {
             <button onClick={handleInstall} className="mt-2 bg-blue-600 text-white px-4 py-2 rounded">
                 Install App
             </button>
-            <button onClick={() => setIsShown(false)} className="ml-2">Maybe later</button>
         </div>
     );
 }
