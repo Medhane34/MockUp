@@ -2,12 +2,10 @@ name: Sanity Dataset Backup
 
 on:
   schedule:
-    # Daily at 3:00 AM Ethiopia time (12:00 AM UTC)
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'  # 3:00 AM Ethiopia
   workflow_dispatch:
 
 env:
-  # Silence Node.js 20 deprecation warning
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -24,24 +22,19 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Debug - Verify secrets loaded
-        run: |
-          echo "Token loaded: $([ -n '${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}' ] && echo 'YES' || echo 'NO - SECRET NOT FOUND')"
-          echo "Project ID loaded: $([ -n '${{ secrets.SANITY_PROJECT_ID }}' ] && echo 'YES' || echo 'NO - SECRET NOT FOUND')"
-          echo "Token starts with: ${SANITY_TOKEN_PROJECT_MOCKUP:0:5}..."
-        env:
-          SANITY_TOKEN_PROJECT_MOCKUP: ${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}
-
       - name: Export Sanity dataset
         env:
           SANITY_AUTH_TOKEN: ${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}
         run: |
-          npx -y @sanity/cli@latest dataset export \
-            --project ${{ secrets.SANITY_PROJECT_ID }} \
-            --dataset production \
-            --no-drafts \
-            --assets \
-            backup-mockup-production.tar.gz
+          npx -y @sanity/cli@latest datasets export \
+            production \
+            backup-mockup-production.tar.gz \
+            --project-id ${{ secrets.SANITY_PROJECT_ID }} \
+            --no-drafts
+
+      - name: Verify export created
+        run: |
+          ls -lh backup-mockup-production.tar.gz
 
       - name: Upload backup artifact
         uses: actions/upload-artifact@v4
