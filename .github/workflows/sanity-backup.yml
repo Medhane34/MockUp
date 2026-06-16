@@ -1,28 +1,38 @@
-name: Sanity Dataset Backup - Debug
+name: Sanity Dataset Backup
 
 on:
+  schedule:
+    # Daily at 3:00 AM Ethiopia time (12:00 AM UTC)
+    - cron: '0 0 * * *'
   workflow_dispatch:
+
+env:
+  # Silence Node.js 20 deprecation warning
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   backup:
     runs-on: ubuntu-latest
+    name: Backup Mockup Project
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Debug environment
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Debug - Verify secrets loaded
         run: |
-          echo "Node version: $(node -v)"
-          echo "NPM version: $(npm -v)"
-          echo "Token loaded: $([ -n '${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}' ] && echo 'YES' || echo 'NO')"
-          echo "Project ID loaded: $([ -n '${{ secrets.SANITY_PROJECT_ID }}' ] && echo 'YES' || echo 'NO')"
-
-      - name: Test Sanity CLI
+          echo "Token loaded: $([ -n '${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}' ] && echo 'YES' || echo 'NO - SECRET NOT FOUND')"
+          echo "Project ID loaded: $([ -n '${{ secrets.SANITY_PROJECT_ID }}' ] && echo 'YES' || echo 'NO - SECRET NOT FOUND')"
+          echo "Token starts with: ${SANITY_TOKEN_PROJECT_MOCKUP:0:5}..."
         env:
-          SANITY_AUTH_TOKEN: ${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}
-        run: |
-          npx -y @sanity/cli@latest projects list 2>&1 || true
+          SANITY_TOKEN_PROJECT_MOCKUP: ${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}
 
-      - name: Export dataset
+      - name: Export Sanity dataset
         env:
           SANITY_AUTH_TOKEN: ${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}
         run: |
@@ -31,4 +41,12 @@ jobs:
             --dataset production \
             --no-drafts \
             --assets \
-            backup.tar.gz 2>&1
+            backup-mockup-production.tar.gz
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanity-backup-mockup-${{ github.run_id }}
+          path: backup-mockup-production.tar.gz
+          retention-days: 7
+          if-no-files-found: error
