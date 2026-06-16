@@ -2,7 +2,7 @@ name: Sanity Dataset Backup
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 3:00 AM Ethiopia
+    - cron: '0 0 * * 0'  # 3:00 AM Ethiopia
   workflow_dispatch:
 
 env:
