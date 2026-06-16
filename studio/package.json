@@ -23,6 +23,7 @@
     "styled-components": "^6.1.8"
   },
   "devDependencies": {
+    "@sanity/codegen": "^7.0.3",
     "@sanity/eslint-config-studio": "^5.0.1",
     "@types/node": "^25.9.3",
     "@types/react": "^18.0.25",

@@ -21,6 +21,8 @@ import { Providers } from "@/components/providers";
 import PWAProvider from "@/components/PWAProvider";
 import InstallPrompt from "@/components/InstallPrompt";
 import NotificationToggle from "@/components/NotificationToggle";
+import TremorSafelist from "@/components/TremorSafelist";
+// app/layout.tsx or app/page.tsx
 
 export default function RootLayout({
   children,
@@ -37,7 +39,12 @@ export default function RootLayout({
         <InstallPrompt />
         <NotificationToggle />
         <PWAProvider />
-        <Providers>{children}</Providers>
+        <TremorSafelist />
+        <Providers>
+          {children}
+        </Providers>
+
+
       </body>
     </html>
   );

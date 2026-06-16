@@ -5,7 +5,8 @@
     "dev:frontend": "cd frontend && npm run dev",
     "dev:studio": "cd studio && npm run dev",
     "deploy:studio": "cd studio && sanity deploy",
-    "validate": "sanity-template-validate"
+    "validate": "sanity-template-validate",
+    "typegen": "sanity typegen generate"
   },
   "workspaces": [
     "frontend",

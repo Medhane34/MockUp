@@ -1,16 +1,172 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
+/* 1. Scan Tremor's compiled JS so Tailwind sees literal class names where possible */
+@source "../node_modules/@tremor/react/dist/**/*.{js,mjs}";
+
+/* 2. Scan your own app files (adjust path if your CSS is in src/app/) */
+@source "./**/*.{js,ts,jsx,tsx}";
+
+/* 3. Keep ONLY Tremor-specific token utilities */
+@utility bg-tremor-brand-faint {
+  background-color: var(--color-tremor-brand-faint);
+}
+
+@utility bg-tremor-brand-muted {
+  background-color: var(--color-tremor-brand-muted);
+}
+
+@utility bg-tremor-brand-subtle {
+  background-color: var(--color-tremor-brand-subtle);
+}
+
+@utility bg-tremor-brand-default {
+  background-color: var(--color-tremor-brand-default);
+}
+
+@utility bg-tremor-brand-emphasis {
+  background-color: var(--color-tremor-brand-emphasis);
+}
+
+@utility bg-tremor-brand-inverted {
+  background-color: var(--color-tremor-brand-inverted);
+}
+
+@utility bg-tremor-background-muted {
+  background-color: var(--color-tremor-background-muted);
+}
+
+@utility bg-tremor-background-subtle {
+  background-color: var(--color-tremor-background-subtle);
+}
+
+@utility bg-tremor-background-default {
+  background-color: var(--color-tremor-background-default);
+}
+
+@utility bg-tremor-background-emphasis {
+  background-color: var(--color-tremor-background-emphasis);
+}
+
+@utility text-tremor-brand-faint {
+  color: var(--color-tremor-brand-faint);
+}
+
+@utility text-tremor-brand-muted {
+  color: var(--color-tremor-brand-muted);
+}
+
+@utility text-tremor-brand-subtle {
+  color: var(--color-tremor-brand-subtle);
+}
+
+@utility text-tremor-brand-default {
+  color: var(--color-tremor-brand-default);
+}
+
+@utility text-tremor-brand-emphasis {
+  color: var(--color-tremor-brand-emphasis);
+}
+
+@utility text-tremor-brand-inverted {
+  color: var(--color-tremor-brand-inverted);
+}
+
+@utility text-tremor-content-subtle {
+  color: var(--color-tremor-content-subtle);
+}
+
+@utility text-tremor-content-default {
+  color: var(--color-tremor-content-default);
+}
+
+@utility text-tremor-content-emphasis {
+  color: var(--color-tremor-content-emphasis);
+}
+
+@utility text-tremor-content-strong {
+  color: var(--color-tremor-content-strong);
+}
+
+@utility text-tremor-content-inverted {
+  color: var(--color-tremor-content-inverted);
+}
+
+@utility border-tremor-border-default {
+  border-color: var(--color-tremor-border-default);
+}
+
+@utility fill-tremor-brand-default {
+  fill: var(--color-tremor-brand-default);
+}
+
+@utility stroke-tremor-brand-default {
+  stroke: var(--color-tremor-brand-default);
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Tremor Light Mode Tokens */
+  --color-tremor-brand-faint: #eff6ff;
+  --color-tremor-brand-muted: #bfdbfe;
+  --color-tremor-brand-subtle: #60a5fa;
+  --color-tremor-brand-default: #3b82f6;
+  --color-tremor-brand-emphasis: #1d4ed8;
+  --color-tremor-brand-inverted: #ffffff;
+  --color-tremor-background-muted: #f9fafb;
+  --color-tremor-background-subtle: #f3f4f6;
+  --color-tremor-background-default: #ffffff;
+  --color-tremor-background-emphasis: #374151;
+  --color-tremor-border-default: #e5e7eb;
+  --color-tremor-content-subtle: #9ca3af;
+  --color-tremor-content-default: #6b7280;
+  --color-tremor-content-emphasis: #374151;
+  --color-tremor-content-strong: #111827;
+  --color-tremor-content-inverted: #ffffff;
 }
 
+.dark {
+  --color-tremor-brand-faint: #0b1229;
+  --color-tremor-brand-muted: #172554;
+  --color-tremor-brand-subtle: #1e40af;
+  --color-tremor-brand-default: #3b82f6;
+  --color-tremor-brand-emphasis: #60a5fa;
+  --color-tremor-brand-inverted: #030712;
+  --color-tremor-background-muted: #131a2a;
+  --color-tremor-background-subtle: #1f2937;
+  --color-tremor-background-default: #111827;
+  --color-tremor-background-emphasis: #d1d5db;
+  --color-tremor-border-default: #1f2937;
+  --color-tremor-content-subtle: #4b5563;
+  --color-tremor-content-default: #9ca3af;
+  --color-tremor-content-emphasis: #f3f4f6;
+  --color-tremor-content-strong: #f9fafb;
+  --color-tremor-content-inverted: #000000;
+}
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --color-tremor-brand-faint: #0b1229;
+    --color-tremor-brand-muted: #172554;
+    --color-tremor-brand-subtle: #1e40af;
+    --color-tremor-brand-default: #3b82f6;
+    --color-tremor-brand-emphasis: #60a5fa;
+    --color-tremor-brand-inverted: #030712;
+    --color-tremor-background-muted: #131a2a;
+    --color-tremor-background-subtle: #1f2937;
+    --color-tremor-background-default: #111827;
+    --color-tremor-background-emphasis: #d1d5db;
+    --color-tremor-border-default: #1f2937;
+    --color-tremor-content-subtle: #4b5563;
+    --color-tremor-content-default: #9ca3af;
+    --color-tremor-content-emphasis: #f3f4f6;
+    --color-tremor-content-strong: #f9fafb;
+    --color-tremor-content-inverted: #000000;
   }
 }
 
