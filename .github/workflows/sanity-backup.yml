@@ -1,0 +1,44 @@
+name: Sanity Dataset Backup
+
+on:
+  schedule:
+    # Runs daily at 3:00 AM UTC (adjust to your timezone)
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  backup-project-a:
+    runs-on: ubuntu-latest
+    name: Backup Project A - Production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Export Sanity dataset
+        env:
+          SANITY_AUTH_TOKEN: ${{ secrets.SANITY_TOKEN_PROJECT_MOCKUP }}
+        run: |
+          npx -y @sanity/cli@latest dataset export \
+            --project k524z1wm \
+            --dataset production \
+            --no-drafts \
+            --assets \
+            backup-project-mockup-production.tar.gz
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanity-backup-project-a-${{ github.run_id }}
+          path: backup-project-a-production.tar.gz
+          retention-days: 14  # Adjust based on your storage needs
+          if-no-files-found: error
+
+      - name: Cleanup old artifacts (optional but recommended)
+        if: always()
+        run: |
+          echo "Backup completed. Artifact retention: 14 days."
