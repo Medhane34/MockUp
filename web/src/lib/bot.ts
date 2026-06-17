@@ -5,7 +5,9 @@ import { createMemoryState } from "@chat-adapter/state-memory";
 export const bot = new Chat({
     userName: "mybot",
     adapters: {
-        telegram: createTelegramAdapter(),
+        telegram: createTelegramAdapter({
+            secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN_AGENT,
+        }),
     },
     state: createMemoryState(),
 });
