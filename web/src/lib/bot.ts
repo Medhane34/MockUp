@@ -11,7 +11,9 @@ export const bot = new Chat({
             secretToken: process.env.TELEGRAM_SECRET_TOKEN!,
         }),
     },
+    // Auto-detects REDIS_URL or Vercel KV env vars (recommended)
     state: createRedisState(),
+
     concurrency: "queue",
     lockScope: "channel",
 });
@@ -23,41 +25,39 @@ bot.onNewMention(async (thread, message) => {
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed");
 
-        // === ENV KEY CHECK (SAFE LOGGING) ===
-        const hasApiKey = !!process.env.OPENAI_API_KEY;
-        const keyLength = process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0;
-        console.log(`[Bot] Environment Verification -> Has Key: ${hasApiKey}, Key Length: ${keyLength}`);
-
-        if (!hasApiKey) {
-            throw new Error("CRITICAL: OPENAI_API_KEY environment variable is completely missing!");
-        }
-
         console.log("[Bot] Checkpoint 3: Calling OpenAI...");
 
-        // Separate OpenAI block to catch direct SDK issues
-        let aiResult;
-        try {
-            aiResult = await generateText({
-                model: openai("gpt-4o-mini"),
-                messages: [{ role: "user", content: message.text }],
-                system: `You are a professional AI Sales Agent. Be helpful, concise, and always move toward qualifying the lead.`,
-            });
-        } catch (aiError: any) {
-            console.error("[Bot] OpenAI SDK Direct Error:", aiError?.message || aiError);
-            throw new Error(`OpenAI Call Failed: ${aiError?.message || "Unknown OpenAI error"}`);
+        // === NEW: Check API Key ===
+        console.log("[Bot] OPENAI_API_KEY present?", !!process.env.OPENAI_API_KEY);
+        console.log("[Bot] OPENAI_API_KEY length:", process.env.OPENAI_API_KEY?.length || 0);
+
+        if (!process.env.OPENAI_API_KEY) {
+            console.error("[Bot] CRITICAL: OPENAI_API_KEY is missing or empty!");
+            await thread.post("Configuration error: API key not found.");
+            return;
         }
 
+        console.log("[Bot] Checkpoint 3.1: Starting generateText...");
+
+        const { text } = await generateText({
+            model: openai("gpt-4o-mini"),
+            messages: [{ role: "user", content: message.text }],
+            system: `You are a professional AI Sales Agent. Be helpful, concise, and always guide toward sales.`,
+
+        });
+
         console.log("[Bot] Checkpoint 4: AI Response received");
-        await thread.post(aiResult.text);
-        console.log("[Bot] Checkpoint 5: Posted");
+        await thread.post(text);
+        console.log("[Bot] Checkpoint 5: Message posted");
 
     } catch (error: any) {
-        console.error("[Bot] ERROR:", error?.message || error);
+        console.error("[Bot] ERROR at Checkpoint 3+:", error?.message || error);
+        console.error("[Bot] Full error:", JSON.stringify(error, null, 2));
 
         if (error?.code === "LOCK_FAILED") return;
 
         try {
-            await thread.post(`Error: ${error?.message || "Sorry, I'm busy right now. Try again shortly."}`);
+            await thread.post("Sorry, I'm having trouble connecting to my brain right now. Please try again.");
         } catch (_) { }
     }
 });
