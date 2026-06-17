@@ -19,22 +19,19 @@ export const bot = new Chat({
 });
 
 bot.onNewMention(async (thread, message) => {
-    await thread.subscribe();
+    try {
+        console.log("[Bot] onNewMention triggered for:", message.text);
+        await thread.subscribe();
 
-    // 1. Convert history
-    const messagesArray = [];
-    for await (const msg of thread.messages) {
-        messagesArray.push(msg);
+        // Ensure generateText and openai are imported at the top of the file
+        const { text } = await generateText({
+            model: openai("gpt-4o"),
+            messages: [{ role: 'user', content: message.text }], // Simplify for testing
+            system: "You are a sales agent.",
+        });
+
+        await thread.post(text);
+    } catch (error) {
+        console.error("[Bot] ERROR inside onNewMention:", error);
     }
-    const aiMessages = await toAiMessages(messagesArray);
-
-    // 2. Generate full response (not streaming loop)
-    const { text } = await generateText({
-        model: openai("gpt-4o"),
-        messages: aiMessages,
-        system: "You are a specialized sales agent for our agency...",
-    });
-
-    // 3. Post the single, complete response
-    await thread.post(text);
 });
