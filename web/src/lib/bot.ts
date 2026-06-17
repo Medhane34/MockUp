@@ -37,26 +37,17 @@ bot.onNewMention(async (thread, message) => {
 // Shared AI logic
 async function handleAIResponse(thread: any, message: any) {
     try {
-        console.log("Before subscribe");
+        console.log("START");
+
         await thread.subscribe();
-        console.log("[Bot] Checkpoint 2: Subscribed");
-        console.log(
-            "[Bot] API Key Exists:",
-            !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
-        );// 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
-        console.log("[Bot] Testing Gemini");
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-lite",
-            contents: "Say hello",
-        });
 
-        console.log(response.text);
-        await thread.post(response.text).catch(() => { });
-        console.log("[Bot] Posted response");
+        console.log("AFTER SUBSCRIBE");
 
+        await thread.post("Test reply");
 
-    } catch (error: any) {
-        console.error("[Bot] EXPLICIT ERROR CAUGHT:", error?.message || error);
-        await thread.post("Sorry, I'm having trouble right now. Please try again.").catch(() => { });
+        console.log("AFTER POST");
+
+    } catch (e) {
+        console.error(e);
     }
 }
