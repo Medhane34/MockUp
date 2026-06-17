@@ -10,12 +10,15 @@
     "typegen": "sanity typegen generate"
   },
   "dependencies": {
+    "@chat-adapter/state-memory": "^4.31.0",
+    "@chat-adapter/telegram": "^4.31.0",
     "@heroui/react": "^3.0.3",
     "@heroui/styles": "^3.0.3",
     "@remixicon/react": "^4.9.0",
     "@sanity/image-url": "^2.1.1",
     "@tremor/react": "^3.18.7",
     "@types/web-push": "^3.6.4",
+    "chat": "^4.31.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.16.0",
