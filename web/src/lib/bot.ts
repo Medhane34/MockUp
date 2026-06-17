@@ -39,14 +39,19 @@ async function handleAIResponse(thread: any, message: any) {
             "[Bot] API Key Exists:",
             !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
         );// 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
-        const { text } = await generateText({
-            model: google('gemini-2.5-flash-lite'),
-            prompt: message.text || 'hello',
+        console.log("[Bot] Testing Gemini");
+
+        const result = await generateText({
+            model: google('gemini-2.5-flash'),
+            prompt: 'Say hello in one sentence',
         });
 
-        console.log("[Bot] Checkpoint 4: AI Response received");
-        await thread.post(text);
-        console.log("[Bot] Checkpoint 5: Message posted");
+        console.log("[Bot] Gemini returned");
+
+        await thread.post(result.text);
+
+        console.log("[Bot] Posted response");
+
 
     } catch (error: any) {
         console.error("[Bot] EXPLICIT ERROR CAUGHT:", error?.message || error);
