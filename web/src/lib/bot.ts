@@ -6,7 +6,7 @@ export const bot = new Chat({
     userName: "mybot",
     adapters: {
         telegram: createTelegramAdapter({
-            secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN_AGENT,
+            secretToken: process.env.TELEGRAM_SECRET_TOKEN,
         }),
     },
     state: createMemoryState(),
