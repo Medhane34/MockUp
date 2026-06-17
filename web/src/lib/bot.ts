@@ -1,8 +1,14 @@
 import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";
-// 1. Import 'gateway' from the core 'ai' package (Do NOT import @ai-sdk/google)
-import { generateText, gateway } from "ai";
+import { generateText } from "ai";
+// 1. Import createGateway to explicitly pass credentials
+import { createGateway } from "@ai-sdk/gateway";
+
+// 2. Instantiate the gateway explicitly with your environment configuration
+const aiGateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_AI_GATEWAY_API_KEY,
+});
 
 export const bot = new Chat({
     userName: "mybot",
@@ -16,13 +22,11 @@ export const bot = new Chat({
     lockScope: "channel",
 });
 
-// === Handle Direct Messages (Private Chat) ===
 bot.onDirectMessage(async (thread, message) => {
     console.log(`[Bot] Direct Message from ${message.author?.userName}`);
     await handleAIResponse(thread, message);
 });
 
-// === Handle Mentions (in Groups) ===
 bot.onNewMention(async (thread, message) => {
     console.log(`[Bot] Mention from ${message.author?.userName}`);
     await handleAIResponse(thread, message);
@@ -33,11 +37,14 @@ async function handleAIResponse(thread: any, message: any) {
     try {
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed");
-        console.log("[Bot] Checkpoint 3: Routing through Vercel AI Gateway...");
 
-        // 2. Route via Vercel's unified gateway endpoint
+        // Diagnostic log to confirm the string exists before calling the SDK
+        const gatewayKey = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_AI_GATEWAY_API_KEY;
+        console.log(`[Bot] Checkpoint 3: Key Length = ${gatewayKey ? gatewayKey.length : 0}. Querying Gateway...`);
+
+        // 3. Call your instantiated gateway instance directly
         const { text } = await generateText({
-            model: gateway("google/gemini-2.5-flash-lite"), // Corrected architecture!
+            model: aiGateway("google/gemini-2.5-flash-lite"),
             messages: [{ role: "user", content: message.text! }],
             system: `You are a professional AI Sales Agent. Be helpful, concise, and sales-oriented.`,
         });
