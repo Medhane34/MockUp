@@ -17,6 +17,7 @@
     "@chat-adapter/state-memory": "^4.31.0",
     "@chat-adapter/state-redis": "^4.31.0",
     "@chat-adapter/telegram": "^4.31.0",
+    "@google/genai": "^2.8.0",
     "@heroui/react": "^3.0.3",
     "@heroui/styles": "^3.0.3",
     "@remixicon/react": "^4.9.0",

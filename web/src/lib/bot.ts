@@ -4,6 +4,11 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { generateText } from "ai";
 // 1. Import the default native google provider
 import { google } from '@ai-sdk/google';
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+    apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
+});
 
 export const bot = new Chat({
     userName: "mybot",
@@ -40,14 +45,13 @@ async function handleAIResponse(thread: any, message: any) {
             !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
         );// 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
         console.log("[Bot] Testing Gemini");
-        console.log("Posting static message");
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: "Say hello",
+        });
 
-        await thread.post(
-            "Static response from bot"
-        );
-
-        console.log("Posted static message");
-
+        console.log(response.text);
+        await thread.post(response.text).catch(() => { });
         console.log("[Bot] Posted response");
 
 
