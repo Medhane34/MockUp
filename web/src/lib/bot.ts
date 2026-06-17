@@ -33,7 +33,7 @@ bot.onNewMention(async (thread, message) => {
         console.log("[Bot] Checkpoint 3: Calling Anthropic...");
 
         const { text } = await generateText({
-            model: anthropic('claude-sonnet-4-5'),
+            model: "anthropic/claude-sonnet-4.5",
             messages: [{ role: 'user', content: message.text }],
             system: "You are a sales agent.",
         });
