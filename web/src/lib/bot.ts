@@ -38,7 +38,7 @@ async function handleAIResponse(thread: any, message: any) {
         console.log("[Bot] GEMINI_API_KEY present?", !!process.env.GEMINI_API_KEY?.trim());
 
         const { text } = await generateText({
-            model: google('gemini-1.5-flash'),        // Stable free model
+            model: google('gemini-2.5-flash-lite'),
             messages: [{ role: "user", content: message.text! }],
             system: `You are a professional AI Sales Agent. Be helpful, concise, and sales-oriented.`,
 
