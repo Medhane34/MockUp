@@ -42,7 +42,7 @@ async function handleAIResponse(thread: any, message: any) {
         console.log("[Bot] Testing Gemini");
 
         const result = await generateText({
-            model: google('gemini-2.5-flash'),
+            model: google('gemini-2.5-flash-lite'),
             prompt: 'Say hello in one sentence',
         });
 
