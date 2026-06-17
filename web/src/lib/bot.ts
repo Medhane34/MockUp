@@ -3,8 +3,11 @@ import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { toAiMessages } from "chat/ai";
 import { streamText, ToolLoopAgent } from "ai"; // Use ToolLoopAgent
-import { openai } from "@ai-sdk/openai"; // Recommended provider import
+import { createOpenAI } from '@ai-sdk/openai';
 
+const openai = createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY, // This must match the name in Vercel
+});
 export const bot = new Chat({
     userName: "mybot",
     adapters: {
