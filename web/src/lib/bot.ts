@@ -24,12 +24,12 @@ bot.onNewMention(async (thread, message) => {
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed to thread");
 
-        // Verify API Key exists
-        if (!process.env.ANTHROPIC_API_KEY) {
-            console.error("[Bot] CRITICAL: ANTHROPIC_API_KEY is missing in environment variables!");
-            return;
-        }
-
+        /*  // Verify API Key exists
+         if (!process.env.ANTHROPIC_API_KEY) {
+             console.error("[Bot] CRITICAL: ANTHROPIC_API_KEY is missing in environment variables!");
+             return;
+         }
+  */
         console.log("[Bot] Checkpoint 3: Calling Anthropic...");
 
         const { text } = await generateText({
