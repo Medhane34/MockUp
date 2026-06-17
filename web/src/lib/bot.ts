@@ -1,10 +1,9 @@
 import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { createMemoryState } from "@chat-adapter/state-memory";
 import { toAiMessages } from "chat/ai";
 import { generateText, streamText, ToolLoopAgent } from "ai"; // Use ToolLoopAgent
 import { createOpenAI } from '@ai-sdk/openai';
-import { createRedisState } from "@chat-adapter/state-redis";
-
 
 const openai = createOpenAI({
     apiKey: process.env.OPENAI_API_KEY, // This must match the name in Vercel
@@ -16,7 +15,7 @@ export const bot = new Chat({
             secretToken: process.env.TELEGRAM_SECRET_TOKEN!,
         }),
     },
-    state: createRedisState(),
+    state: createMemoryState(),
 });
 
 bot.onNewMention(async (thread, message) => {
