@@ -32,15 +32,16 @@ bot.onNewMention(async (thread, message) => {
 // Shared AI logic
 async function handleAIResponse(thread: any, message: any) {
     try {
+        console.log("Before subscribe");
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed");
-        console.log("[Bot] Checkpoint 3: Calling Gemini directly (No Gateway)...");
-
-        // 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
+        console.log(
+            "[Bot] API Key Exists:",
+            !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
+        );// 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
         const { text } = await generateText({
             model: google('gemini-2.5-flash-lite'),
-            messages: [{ role: "user", content: message.text! }],
-            system: `You are a professional AI Sales Agent. Be helpful, concise, and sales-oriented.`,
+            prompt: message.text || 'hello',
         });
 
         console.log("[Bot] Checkpoint 4: AI Response received");
