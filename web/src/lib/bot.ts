@@ -16,6 +16,9 @@ export const bot = new Chat({
 });
 
 bot.onNewMention(async (thread, message) => {
+
+
+    console.log("[Bot] onNewMention triggered for message:", message.text); // Add this
     await thread.subscribe();
 
     // 1. Resolve the AsyncIterable to an Array
@@ -36,6 +39,8 @@ bot.onNewMention(async (thread, message) => {
 
     // 4. Stream response back to the Telegram thread
     for await (const textPart of result.textStream) {
+        console.log("[Bot] Sending text part:", textPart);
+
         await thread.post(textPart);
     }
 });
