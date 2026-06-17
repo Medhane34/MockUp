@@ -2,7 +2,7 @@ import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { generateText } from "ai";
-import { openai } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google';   // ← Gemini provider
 
 export const bot = new Chat({
     userName: "mybot",
@@ -23,13 +23,20 @@ bot.onNewMention(async (thread, message) => {
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed");
 
-        console.log("[Bot] Checkpoint 3: Calling OpenAI...");
-        console.log("[Bot] OPENAI_API_KEY present?", !!process.env.OPENAI_API_KEY?.trim());
+        console.log("[Bot] Checkpoint 3: Calling Gemini...");
+        console.log("[Bot] GEMINI_API_KEY present?", !!process.env.GEMINI_API_KEY?.trim());
+
+        if (!process.env.GEMINI_API_KEY) {
+            console.error("[Bot] CRITICAL: GEMINI_API_KEY is missing!");
+            await thread.post("Configuration error. API key not set.").catch(() => { });
+            return;
+        }
 
         const { text } = await generateText({
-            model: openai("gpt-4o-mini"),
+            model: google('gemini-2.0-flash-exp'),     // Fast & free-friendly (or gemini-1.5-flash)
             messages: [{ role: "user", content: message.text! }],
-            system: `You are a professional AI Sales Agent. Be helpful, concise, and sales-oriented.`,
+            system: `You are a professional AI Sales Agent.
+               Be helpful, concise, and always try to understand the user's needs and guide them toward products/services.`,
 
         });
 
@@ -42,7 +49,7 @@ bot.onNewMention(async (thread, message) => {
         console.error("[Bot] Full error:", error);
 
         try {
-            await thread.post("Sorry, I'm having trouble right now. Please try again.");
+            await thread.post("Sorry, I'm having trouble right now. Please try again shortly.");
         } catch (_) { }
     }
 });

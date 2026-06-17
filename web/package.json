@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",
+    "@ai-sdk/google": "^3.0.83",
     "@ai-sdk/openai": "^3.0.72",
     "@chat-adapter/state-memory": "^4.31.0",
     "@chat-adapter/state-redis": "^4.31.0",
