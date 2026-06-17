@@ -1,27 +1,41 @@
 import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createMemoryState } from "@chat-adapter/state-memory";
+import { toAiMessages } from "chat/ai";
+import { streamText, ToolLoopAgent } from "ai"; // Use ToolLoopAgent
+import { openai } from "@ai-sdk/openai"; // Recommended provider import
 
 export const bot = new Chat({
     userName: "mybot",
     adapters: {
         telegram: createTelegramAdapter({
-            secretToken: process.env.TELEGRAM_SECRET_TOKEN,
+            secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN!,
         }),
     },
     state: createMemoryState(),
 });
-// Step A: Triggered the first time a user talks to the bot or mentions it in a group
+
 bot.onNewMention(async (thread, message) => {
-    console.log(`[Bot] First mention received: ${message.text}`);
-
-    // CRITICAL: You must subscribe to the thread to receive follow-up messages!
     await thread.subscribe();
-    await thread.post(`Hello! I am listening to this thread now. You said: ${message.text}`);
-});
 
-// Step B: Triggered for every message sent inside an already subscribed thread
-bot.onSubscribedMessage(async (thread, message) => {
-    console.log(`[Bot] Subscribed follow-up message: ${message.text}`);
-    await thread.post(`You said: ${message.text}`);
+    // 1. Resolve the AsyncIterable to an Array
+    const messagesArray = [];
+    for await (const msg of thread.messages) {
+        messagesArray.push(msg);
+    }
+
+    // 2. Convert to AI SDK format
+    const aiMessages = await toAiMessages(messagesArray);
+
+    // 3. Use streamText (Standard, reliable, replaces ToolLoopAgent)
+    const result = streamText({
+        model: openai("gpt-4o"),
+        messages: aiMessages,
+        system: "You are a specialized sales agent for our agency. Guide the user through the sales process.",
+    });
+
+    // 4. Stream response back to the Telegram thread
+    for await (const textPart of result.textStream) {
+        await thread.post(textPart);
+    }
 });
