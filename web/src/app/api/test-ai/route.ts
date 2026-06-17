@@ -1,19 +1,12 @@
-// app/api/test-gemini/route.ts
+import { GoogleGenAI } from "@google/genai";
 
-import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
+const ai = new GoogleGenAI({
+    apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
+});
 
-export async function GET() {
-    console.log("START");
+const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: "Hello, what's good",
+});
 
-    const result = await generateText({
-        model: google("gemini-2.5-flash"),
-        prompt: "Say hello",
-    });
-
-    console.log("END");
-
-    return Response.json({
-        text: result.text,
-    });
-}
+console.log(response.text);
