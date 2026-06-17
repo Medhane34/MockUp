@@ -2,7 +2,7 @@ import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { generateText } from "ai";
-import { google } from '@ai-sdk/google';   // ← Gemini provider
+import { google } from '@ai-sdk/google';
 
 export const bot = new Chat({
     userName: "mybot",
@@ -16,9 +16,20 @@ export const bot = new Chat({
     lockScope: "channel",
 });
 
-bot.onNewMention(async (thread, message) => {
-    console.log(`[Bot] Checkpoint 1: Event for ${message.author?.userName}`);
+// === Handle Direct Messages (Private Chat) ===
+bot.onDirectMessage(async (thread, message) => {
+    console.log(`[Bot] Direct Message from ${message.author?.userName}`);
+    await handleAIResponse(thread, message);
+});
 
+// === Handle Mentions (in Groups) ===
+bot.onNewMention(async (thread, message) => {
+    console.log(`[Bot] Mention from ${message.author?.userName}`);
+    await handleAIResponse(thread, message);
+});
+
+// Shared AI logic
+async function handleAIResponse(thread: any, message: any) {
     try {
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed");
@@ -26,17 +37,10 @@ bot.onNewMention(async (thread, message) => {
         console.log("[Bot] Checkpoint 3: Calling Gemini...");
         console.log("[Bot] GEMINI_API_KEY present?", !!process.env.GEMINI_API_KEY?.trim());
 
-        if (!process.env.GEMINI_API_KEY) {
-            console.error("[Bot] CRITICAL: GEMINI_API_KEY is missing!");
-            await thread.post("Configuration error. API key not set.").catch(() => { });
-            return;
-        }
-
         const { text } = await generateText({
-            model: google('gemini-2.0-flash-exp'),     // Fast & free-friendly (or gemini-1.5-flash)
+            model: google('gemini-1.5-flash'),        // Stable free model
             messages: [{ role: "user", content: message.text! }],
-            system: `You are a professional AI Sales Agent.
-               Be helpful, concise, and always try to understand the user's needs and guide them toward products/services.`,
+            system: `You are a professional AI Sales Agent. Be helpful, concise, and sales-oriented.`,
 
         });
 
@@ -46,10 +50,6 @@ bot.onNewMention(async (thread, message) => {
 
     } catch (error: any) {
         console.error("[Bot] ERROR:", error?.message || error);
-        console.error("[Bot] Full error:", error);
-
-        try {
-            await thread.post("Sorry, I'm having trouble right now. Please try again shortly.");
-        } catch (_) { }
+        await thread.post("Sorry, I'm having trouble right now. Please try again.").catch(() => { });
     }
-});
+}
