@@ -41,14 +41,20 @@ async function handleAIResponse(thread: any, message: any) {
         );// 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
         console.log("[Bot] Testing Gemini");
 
-        const result = await generateText({
-            model: google('gemini-2.5-flash-lite'),
-            prompt: 'Say hello in one sentence',
-        });
+        const result = await Promise.race([
+            generateText({
+                model: google("gemini-2.5-flash"),
+                prompt: "Hello",
+            }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Gemini timeout")), 10000)
+            ),
+        ]);
 
-        console.log("[Bot] Gemini returned");
+        console.log("Gemini finished");
 
-        await thread.post(result.text);
+
+        await thread.post((result as any).text);
 
         console.log("[Bot] Posted response");
 
