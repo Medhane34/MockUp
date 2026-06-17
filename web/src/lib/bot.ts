@@ -33,7 +33,7 @@ bot.onNewMention(async (thread, message) => {
         console.log("[Bot] Checkpoint 3: Calling OpenAI...");
 
         const { text } = await generateText({
-            model: openai("gpt-4o"),
+            model: openai("gpt-5.5"),
             messages: [{ role: 'user', content: message.text }],
             system: "You are a sales agent.",
         });
