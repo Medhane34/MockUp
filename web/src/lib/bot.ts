@@ -25,7 +25,7 @@ bot.onNewMention(async (thread, message) => {
         console.log("[Bot] Checkpoint 3: Calling OpenAI...");
 
         const { text } = await generateText({
-            model: openai('gpt-4o'),           // Best current balance (fast + smart)
+            model: openai('gpt-5.4-mini'),           // Best current balance (fast + smart)
             // model: openai('gpt-4o-mini'),   // Cheaper & faster for testing
             messages: [{ role: 'user', content: message.text }],
             system: `You are a professional AI Sales Agent.
