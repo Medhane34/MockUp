@@ -2,13 +2,8 @@ import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { generateText } from "ai";
-// 1. Import createGateway to explicitly pass credentials
-import { createGateway } from "@ai-sdk/gateway";
-
-// 2. Instantiate the gateway explicitly with your environment configuration
-const aiGateway = createGateway({
-    apiKey: process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_AI_GATEWAY_API_KEY,
-});
+// 1. Import the default native google provider
+import { google } from '@ai-sdk/google';
 
 export const bot = new Chat({
     userName: "mybot",
@@ -22,11 +17,13 @@ export const bot = new Chat({
     lockScope: "channel",
 });
 
+// === Handle Direct Messages ===
 bot.onDirectMessage(async (thread, message) => {
     console.log(`[Bot] Direct Message from ${message.author?.userName}`);
     await handleAIResponse(thread, message);
 });
 
+// === Handle Mentions ===
 bot.onNewMention(async (thread, message) => {
     console.log(`[Bot] Mention from ${message.author?.userName}`);
     await handleAIResponse(thread, message);
@@ -37,14 +34,11 @@ async function handleAIResponse(thread: any, message: any) {
     try {
         await thread.subscribe();
         console.log("[Bot] Checkpoint 2: Subscribed");
+        console.log("[Bot] Checkpoint 3: Calling Gemini directly (No Gateway)...");
 
-        // Diagnostic log to confirm the string exists before calling the SDK
-        const gatewayKey = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_AI_GATEWAY_API_KEY;
-        console.log(`[Bot] Checkpoint 3: Key Length = ${gatewayKey ? gatewayKey.length : 0}. Querying Gateway...`);
-
-        // 3. Call your instantiated gateway instance directly
+        // 2. The native SDK automatically reads process.env.GOOGLE_GENERATIVE_AI_API_KEY
         const { text } = await generateText({
-            model: aiGateway("google/gemini-2.5-flash-lite"),
+            model: google('gemini-2.5-flash-lite'),
             messages: [{ role: "user", content: message.text! }],
             system: `You are a professional AI Sales Agent. Be helpful, concise, and sales-oriented.`,
         });
@@ -55,7 +49,6 @@ async function handleAIResponse(thread: any, message: any) {
 
     } catch (error: any) {
         console.error("[Bot] EXPLICIT ERROR CAUGHT:", error?.message || error);
-        console.error("[Bot] Error Details:", JSON.stringify(error, null, 2));
         await thread.post("Sorry, I'm having trouble right now. Please try again.").catch(() => { });
     }
 }
