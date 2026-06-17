@@ -28,7 +28,7 @@ bot.onNewMention(async (thread, message) => {
         console.log("[Bot] OPENAI_API_KEY present?", !!process.env.OPENAI_API_KEY);
 
         const { text } = await generateText({
-            model: openai("gpt-4o-mini"),
+            model: openai("gpt-5.4-mini"),
             messages: [{ role: "user", content: message.text! }],
             system: "You are a helpful AI Sales Agent.",
 
