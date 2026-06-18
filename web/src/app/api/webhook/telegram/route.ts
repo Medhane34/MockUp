@@ -1,14 +1,14 @@
 // app/api/webhook/telegram/route.ts
 import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { GoogleGenAI } from "@google/genai";
+import { generateText } from "ai";
 
-// Allow up to 60s for Gemini to respond and for us to send the reply
+// Allow up to 60s for AI to respond and for us to send the reply
 export const maxDuration = 60;
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
-// ─── Send a message back to the user via Telegram Bot API ────────────────────
+// ─── Send a message back to Telegram ─────────────────────────────────────────
 async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
     const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: "POST",
@@ -21,7 +21,7 @@ async function sendTelegramMessage(chatId: number, text: string): Promise<void> 
     }
 }
 
-// ─── Core processing — runs inside waitUntil so Vercel stays alive ────────────
+// ─── Core AI processing — runs inside waitUntil ───────────────────────────────
 async function processUpdate(update: any): Promise<void> {
     const message = update.message ?? update.edited_message;
     if (!message?.text) {
@@ -31,21 +31,18 @@ async function processUpdate(update: any): Promise<void> {
 
     const chatId: number = message.chat.id;
     const userText: string = message.text;
-    const userName: string = message.from?.username ?? message.from?.first_name ?? "user";
+    const userName: string =
+        message.from?.username ?? message.from?.first_name ?? "user";
 
-    console.log(`[Bot] Message from ${userName}: ${userText}`);
+    console.log(`[Bot] Message from ${userName}: "${userText}"`);
+    console.log("[Bot] Calling Gemini via Vercel AI Gateway...");
 
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY! });
-
-    console.log("[Bot] Calling Gemini...");
-    const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: [{ role: "user", parts: [{ text: userText }] }],
+    // ✅ Vercel AI Gateway — model string format: 'provider/model-name'
+    // AI_GATEWAY_API_KEY is read automatically from the environment
+    const { text: replyText } = await generateText({
+        model: "google/gemini-2.0-flash",
+        prompt: userText,
     });
-
-    const replyText =
-        response.candidates?.[0]?.content?.parts?.[0]?.text ??
-        "I couldn't generate a response.";
 
     console.log("[Bot] Gemini responded:", replyText.slice(0, 100));
 
@@ -64,7 +61,8 @@ export async function POST(request: NextRequest) {
         return new Response("Unauthorized", { status: 401 });
     }
 
-    // 2. Read body NOW (before returning the response — critical for Vercel)
+    // 2. Read body NOW before returning — critical so the request stream
+    //    isn't closed when Vercel sends the response.
     let update: any;
     try {
         update = await request.json();
