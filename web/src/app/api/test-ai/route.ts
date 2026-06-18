@@ -1,12 +1,10 @@
-import { GoogleGenAI } from "@google/genai";
+import { generateText } from 'ai';
 
-const ai = new GoogleGenAI({
-    apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
-});
+export async function GET() {
+    const { text } = await generateText({
+        model: 'anthropic/claude-opus-4.8',
+        prompt: 'Explain quantum computing in one paragraph.',
+    });
 
-const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: "Hello, what's good",
-});
-
-console.log(response.text);
+    return Response.json({ text });
+}
