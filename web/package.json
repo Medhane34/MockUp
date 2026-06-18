@@ -24,6 +24,7 @@
     "@sanity/image-url": "^2.1.1",
     "@tremor/react": "^3.18.7",
     "@types/web-push": "^3.6.4",
+    "@vercel/functions": "^3.7.1",
     "ai": "^6.0.207",
     "chat": "^4.31.0",
     "clsx": "^2.1.1",
