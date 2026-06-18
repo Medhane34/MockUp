@@ -40,7 +40,7 @@ async function processUpdate(update: any): Promise<void> {
     // ✅ Vercel AI Gateway — model string format: 'provider/model-name'
     // AI_GATEWAY_API_KEY is read automatically from the environment
     const { text: replyText } = await generateText({
-        model: "google/gemini-2.0-flash",
+        model: "google/gemini-2.5-flash-lite",
         prompt: userText,
     });
 
