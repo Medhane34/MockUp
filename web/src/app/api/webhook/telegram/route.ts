@@ -1,18 +1,24 @@
 // app/api/webhook/telegram/route.ts
-import { bot } from "@/lib/bot";   // ← Change path if your bot.ts is elsewhere (e.g. "@/bot")
+import { bot } from "@/lib/bot";
 import { NextRequest } from "next/server";
+import { waitUntil } from "@vercel/functions";
+
+// Give Vercel up to 60 seconds to complete the async AI work
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
-    try {
-        console.log("[Webhook] Received a new request");
+    console.log("[Webhook] Received a new request");
 
-        // This is the CORRECT way for current Chat SDK + Telegram adapter
-        await bot.webhooks.telegram(request);
+    // Clone the request body BEFORE passing to the SDK,
+    // so we can still read it if needed for debugging.
+    const processingPromise = bot.webhooks.telegram(request).catch((error: any) => {
+        console.error("[Webhook] Bot processing error:", error?.message ?? error);
+    });
 
-        console.log("[Webhook] Successfully processed update");
-        return new Response("OK", { status: 200 });
-    } catch (error: any) {
-        console.error("[Webhook] Error:", error?.message || error);
-        return new Response("Error", { status: 500 });
-    }
+    // ✅ waitUntil keeps the Vercel function alive until the AI response
+    // is generated and sent — even after we've returned 200 OK to Telegram.
+    waitUntil(processingPromise);
+
+    // Telegram requires a fast 200 OK — return immediately.
+    return new Response("OK", { status: 200 });
 }
