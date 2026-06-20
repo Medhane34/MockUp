@@ -1,3 +1,4 @@
+// src/lib/bot.ts
 import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";

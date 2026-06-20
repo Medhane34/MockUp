@@ -19,7 +19,7 @@ export const SendNotificationAction: DocumentActionComponent = (props: DocumentA
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-api-key': 'xX0vkdQ0j9' // See Step 3 for security
+                        'x-api-key': 'xX0vkdQ0j9' // must be updated for different clients or apps 
                     }
                 });
 
