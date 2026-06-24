@@ -32,33 +32,34 @@ async function processUpdate(update: any): Promise<void> {
 
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
 
-
-    // === NEW: ONBOARDING CHECK (Early Exit) ===
+    // === ONBOARDING CHECK (Early Exit) ===
     try {
-
-        const { getBuyer, createOrUpdateBuyer } = await import("@/lib/sanity/buyer");
+        const { getBuyer } = await import("@/lib/sanity/buyer");
         const { handleOnboarding } = await import("@/lib/onboarding");
 
         let buyer = await getBuyer(telegramId);
 
         if (!buyer || buyer.onboardingStep !== "completed") {
-            console.log(`[Onboarding] Checking onboarding for user ${telegramId}`);
+            console.log(`[Onboarding] Checking step for user ${telegramId} (current: ${buyer?.onboardingStep || 'new'})`);
 
-            const onboardingResult = await handleOnboarding({
-                post: async (content: any) => {
-                    // Use your existing sendFormattedMessage
-                    await sendFormattedMessage(chatId, typeof content === 'string' ? content : content.text);
-                }
-            }, message, buyer, telegramId);   // Pass adapted thread
+            const onboardingResult = await handleOnboarding(null, message, buyer, telegramId);
 
-            if (onboardingResult.handled) {
-                console.log("[Onboarding] Handled successfully");
-                return; // Stop normal flow
+            if (onboardingResult.handled && onboardingResult.response) {
+                console.log("[Onboarding] Handled successfully - sending response");
+
+                // Use your existing formatter to support inline keyboards
+                await sendFormattedMessage(
+                    chatId,
+                    onboardingResult.response.text,
+                    onboardingResult.response.replyMarkup || undefined
+                );
+
+                return; // Stop normal AI flow
             }
         }
     } catch (onboardErr: any) {
-        console.error("[Onboarding] Error during check:", onboardErr);
-        // Continue with normal flow if onboarding fails
+        console.error("[Onboarding] Error during check:", onboardErr?.message || onboardErr);
+        // Continue with normal flow if onboarding fails (safety)
     }
     // 1. Intent Detection (Task 8)
     let intentResult;

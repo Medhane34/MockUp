@@ -6,73 +6,64 @@ import { createOrUpdateBuyer } from "./sanity/buyer";
 
 type OnboardingResult = {
     handled: boolean;
+    response?: any;     // text + replyMarkup
     buyer?: any;
 };
 
 export async function handleOnboarding(
+
     thread: any,
     message: any,
     existingBuyer: any,
     telegramId: string
 ): Promise<OnboardingResult> {
+
     const rawText = typeof message.text === "string" ? message.text.trim() : "";
     const userText = rawText.toLowerCase();
 
-    console.log(`[Onboarding] User ${telegramId} - Step: ${existingBuyer?.onboardingStep || 'new'}`);
-
-    // STEP 1: /start → Terms Confirmation
-    if (userText === "/start") {
+    // STEP 1: /start → Terms
+    if (userText === "/start" || !existingBuyer || existingBuyer.onboardingStep === "welcome") {
         const termsText = `Before we continue, please confirm:\n\n` +
             `• I agree to Aligoo's Terms of Service and Privacy Policy.\n` +
             `• You allow us to save your name, phone, and preferences.\n` +
             `• Your data will only be used to improve your shopping experience.`;
 
-        await thread.post({
-            text: termsText,
-            replyMarkup: {
-                inline_keyboard: [
-                    [{ text: "✅ Agree & Continue", callback_data: "onboarding_agree" }],
-                    [{ text: "❌ Reject", callback_data: "onboarding_reject" }]
-                ]
-            }
-        });
-
-        await createOrUpdateBuyer(telegramId, {
-            username: message.from?.username || message.author?.userName,
-            onboardingStep: "terms",
-        });
-
-        return { handled: true };
+        return {
+            handled: true,
+            response: {
+                text: termsText,
+                replyMarkup: {
+                    inline_keyboard: [
+                        [{ text: "✅ Agree & Continue", callback_data: "onboarding_agree" }],
+                        [{ text: "❌ Reject", callback_data: "onboarding_reject" }]
+                    ]
+                }
+            },
+            buyer: await createOrUpdateBuyer(telegramId, { onboardingStep: "terms" })
+        };
     }
 
-    // Handle Inline Button Clicks
+    // Callback handling
     if (message.callback_query) {
         const cbData = message.callback_query.data;
 
         if (cbData === "onboarding_reject") {
-            await thread.post("No problem! You can still chat with me.\n\nFor support: @aligoo_support");
-            return { handled: true };
+            return {
+                handled: true,
+                response: { text: "No problem! You can still chat with me.\n\nFor support: @aligoo_support" }
+            };
         }
 
-        if (cbData === "onboarding_agree" && existingBuyer?.onboardingStep === "terms") {
+        if (cbData === "onboarding_agree") {
             await createOrUpdateBuyer(telegramId, { onboardingStep: "name" });
-            await thread.post("Great! What's your full name?");
-            return { handled: true };
-        }
-
-        // Language selection
-        if (cbData.startsWith("lang_")) {
-            const lang = cbData === "lang_am" ? "am" : "en";
-            await createOrUpdateBuyer(telegramId, {
-                preferredLanguage: lang,
-                onboardingStep: "interests",
-            });
-            await showInterestCategories(thread, telegramId);
-            return { handled: true };
+            return {
+                handled: true,
+                response: { text: "Great! What's your full name?" }
+            };
         }
     }
 
-    // STEP 2: Name Collection
+    // STEP 2: Name
     if (existingBuyer?.onboardingStep === "name") {
         const fullName = rawText;
         const firstName = fullName.split(" ")[0];
@@ -80,68 +71,82 @@ export async function handleOnboarding(
         await createOrUpdateBuyer(telegramId, {
             firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1),
             fullName,
-            onboardingStep: "phone",
+            onboardingStep: "phone"
         });
 
-        await thread.post(`Nice to meet you, **${firstName}**! 👋\n\nPlease tap the button below to share your phone number.`);
-
-        await thread.post({
-            text: "Share Contact",
-            replyMarkup: {
-                keyboard: [[{ request_contact: true, text: "📱 Share Phone Number" }]],
-                one_time_keyboard: true,
-                resize_keyboard: true,
+        return {
+            handled: true,
+            response: {
+                text: `Nice to meet you, **${firstName}**! 👋\n\nPlease tap the button below to share your phone number.`,
+                replyMarkup: {
+                    keyboard: [[{ request_contact: true, text: "📱 Share Phone Number" }]],
+                    one_time_keyboard: true,
+                    resize_keyboard: true
+                }
             }
-        });
-        return { handled: true };
+        };
     }
 
-    // STEP 3: Phone Number (Contact Share)
+    // STEP 3: Phone (Contact)
     if (message.contact && existingBuyer?.onboardingStep === "phone") {
         await createOrUpdateBuyer(telegramId, {
             phone: message.contact.phone_number,
-            onboardingStep: "language",
+            onboardingStep: "language"
         });
 
-        await thread.post("Thank you! What's your preferred language?");
-
-        await thread.post({
-            text: "Choose your language:",
-            replyMarkup: {
-                inline_keyboard: [
-                    [{ text: "🇪🇹 Amharic", callback_data: "lang_am" }],
-                    [{ text: "🇬🇧 English", callback_data: "lang_en" }]
-                ]
+        return {
+            handled: true,
+            response: {
+                text: "Thank you! What's your preferred language?",
+                replyMarkup: {
+                    inline_keyboard: [
+                        [{ text: "🇪🇹 Amharic", callback_data: "lang_am" }],
+                        [{ text: "🇬🇧 English", callback_data: "lang_en" }]
+                    ]
+                }
             }
-        });
-        return { handled: true };
+        };
+    }
+
+    // STEP 4: Language + Final Step (Interests)
+    if (message.callback_query?.data?.startsWith("lang_")) {
+        const lang = message.callback_query.data === "lang_am" ? "am" : "en";
+        await createOrUpdateBuyer(telegramId, { preferredLanguage: lang, onboardingStep: "interests" });
+
+        return await showInterestCategories(telegramId);
     }
 
     return { handled: false, buyer: existingBuyer };
 }
 
-// Helper: Show dynamic product categories as vertical inline buttons
-async function showInterestCategories(thread: any, telegramId: string) {
+// Final Step: Dynamic Categories
+async function showInterestCategories(telegramId: string) {
     try {
-        const categories = await client.fetch(`
-      *[_type == "product"]{ category } | group(category) { category }
+        const cats = await client.fetch(`
+      *[_type == "product" && defined(category)].category | unique
     `);
 
-        const uniqueCategories: string[] = Array.from(new Set(categories));
-
-        const buttons = uniqueCategories.map(cat => [{
+        const buttons = cats.map((cat: string) => [{
             text: cat.charAt(0).toUpperCase() + cat.slice(1),
             callback_data: `interest_${cat}`
         }]);
 
-        await thread.post({
-            text: "Thank you! You're all set. 🎉\n\nWhat are you most interested in today?",
-            replyMarkup: { inline_keyboard: buttons }
-        });
-
-        await createOrUpdateBuyer(telegramId, { onboardingStep: "completed", status: "raw" });
+        return {
+            handled: true,
+            response: {
+                text: "Thank you! You're all set. 🎉\n\nWhat are you most interested in today?",
+                replyMarkup: { inline_keyboard: buttons }
+            },
+            buyer: await createOrUpdateBuyer(telegramId, {
+                onboardingStep: "completed",
+                status: "raw"
+            })
+        };
     } catch (e) {
-        console.error("[Onboarding] Failed to fetch categories:", e);
-        await thread.post("Thank you! You're all set. 🎉\n\nHow can I help you today?");
+        console.error("[Onboarding] Categories fetch failed:", e);
+        return {
+            handled: true,
+            response: { text: "Thank you! You're all set. 🎉\n\nHow can I help you today?" }
+        };
     }
 }
