@@ -33,7 +33,7 @@ async function processUpdate(update: any): Promise<void> {
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
 
     // === ONBOARDING CHECK (Early Exit) ===
-    // === ONBOARDING CHECK (STRONG EARLY EXIT) ===
+    // === CLEAN ONBOARDING CHECK (Strong Early Exit) ===
     let onboardingHandled = false;
 
     try {
@@ -43,35 +43,29 @@ async function processUpdate(update: any): Promise<void> {
         let buyer = await getBuyer(telegramId);
 
         if (!buyer || buyer.onboardingStep !== "completed") {
-            console.log(`[Onboarding] Checking for user ${telegramId} (step: ${buyer?.onboardingStep || 'new'})`);
+            console.log(`[Onboarding] Checking user ${telegramId} (step: ${buyer?.onboardingStep || 'new'})`);
 
-            const onboardingResult = await handleOnboarding(null, message, buyer, telegramId);
+            const result = await handleOnboarding(null, message, buyer, telegramId);
 
-            if (onboardingResult.handled && onboardingResult.response) {
-                console.log("[Onboarding] ✅ Handled successfully - sending response");
-
+            if (result.handled && result.response) {
                 await sendFormattedMessage(
                     chatId,
-                    onboardingResult.response.text,
-                    onboardingResult.response.replyMarkup
+                    result.response.text,
+                    result.response.replyMarkup
                 );
-
                 onboardingHandled = true;
-                console.log("[Onboarding] Setting flag and preparing to RETURN");
             }
         }
-    } catch (onboardErr: any) {
-        console.error("[Onboarding] Error:", onboardErr?.message || onboardErr);
+    } catch (err: any) {
+        console.error("[Onboarding] Error:", err?.message || err);
     }
 
-    // === FORCE EARLY EXIT ===
     if (onboardingHandled) {
-        console.log("[Onboarding] 🚀 Onboarding handled the request. FORCE RETURNING now.");
-        return;   // This MUST stop everything
+        console.log("[Onboarding] ✅ Handled. Skipping normal AI flow.");
+        return;   // STOP HERE
     }
 
-    console.log("[Bot] User is fully onboarded → Proceeding with normal AI flow");
-
+    console.log("[Bot] User completed onboarding → Normal AI flow");
     // 1. Intent Detection (Task 8)
     let intentResult;
     try {

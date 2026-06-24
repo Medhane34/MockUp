@@ -57,22 +57,6 @@ async function handleAIResponse(thread: any, message: any) {
 
         console.log("[Bot] User message:", userText);
 
-        // === 1. Check Buyer + Onboarding Flow ===
-        let buyer = await getBuyer(telegramId);
-
-        if (!buyer || buyer.onboardingStep !== "completed") {
-            console.log(`[Onboarding] User ${telegramId} is in onboarding step: ${buyer?.onboardingStep || 'new'}`);
-
-            const onboardingResult = await handleOnboarding(thread, message, buyer, telegramId);
-
-            if (onboardingResult.handled) {
-                console.log("[Onboarding] Handled by onboarding flow");
-                return; // Important: Stop here, do not go to normal AI response
-            }
-
-            buyer = onboardingResult.buyer; // Use possibly updated buyer
-        }
-
         // === 2. Normal Conversation Flow (After Onboarding) ===
         console.log(`[Bot] User ${telegramId} is fully onboarded. Proceeding with normal response.`);
 
@@ -104,10 +88,6 @@ async function handleAIResponse(thread: any, message: any) {
 
         await thread.post(replyText);
 
-        // Light buyer update (optimized - not every message)
-        if (Math.random() < 0.25) {
-            await updateBuyerInteraction(telegramId);
-        }
 
     } catch (error: any) {
         console.error("[Bot] ERROR in handleAIResponse:", error?.message ?? error);
