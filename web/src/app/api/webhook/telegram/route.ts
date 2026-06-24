@@ -33,8 +33,8 @@ async function processUpdate(update: any): Promise<void> {
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
 
     // === ONBOARDING CHECK (Early Exit) ===
-    // === ONBOARDING CHECK (Early Exit) - Place this RIGHT AFTER getting telegramId and userName ===
-    let isOnboardingHandled = false;
+    // === ONBOARDING CHECK (MUST BE EARLY + STRONG EARLY EXIT) ===
+    let onboardingHandled = false;
 
     try {
         const { getBuyer } = await import("@/lib/sanity/buyer");
@@ -48,7 +48,7 @@ async function processUpdate(update: any): Promise<void> {
             const onboardingResult = await handleOnboarding(null, message, buyer, telegramId);
 
             if (onboardingResult.handled && onboardingResult.response) {
-                console.log("[Onboarding] Handled successfully");
+                console.log("[Onboarding] Handled successfully - sending response");
 
                 await sendFormattedMessage(
                     chatId,
@@ -56,21 +56,21 @@ async function processUpdate(update: any): Promise<void> {
                     onboardingResult.response.replyMarkup
                 );
 
-                isOnboardingHandled = true;
+                onboardingHandled = true;
             }
         }
     } catch (onboardErr: any) {
         console.error("[Onboarding] Error:", onboardErr?.message || onboardErr);
     }
 
-    // === CRITICAL: Skip normal AI flow if onboarding handled the message ===
-    if (isOnboardingHandled) {
-        console.log("[Onboarding] Skipping normal AI response");
-        return;
+    // === CRITICAL EARLY EXIT ===
+    if (onboardingHandled) {
+        console.log("[Onboarding] Onboarding handled the request. Skipping normal AI flow.");
+        return;   // This must stop the entire processUpdate function
     }
 
-
-    // ... rest of your original processUpdate code (prompt building, generateText, etc.)
+    // === ONLY CONTINUE IF NOT IN ONBOARDING ===
+    console.log("[Bot] User is fully onboarded. Proceeding with normal AI response.");
 
 
     // 1. Intent Detection (Task 8)
