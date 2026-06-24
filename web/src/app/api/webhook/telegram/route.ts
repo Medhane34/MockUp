@@ -33,7 +33,7 @@ async function processUpdate(update: any): Promise<void> {
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
 
     // === ONBOARDING CHECK (Early Exit) ===
-    // === ONBOARDING CHECK (MUST BE EARLY + STRONG EARLY EXIT) ===
+    // === ONBOARDING CHECK (STRONG EARLY EXIT) ===
     let onboardingHandled = false;
 
     try {
@@ -48,7 +48,7 @@ async function processUpdate(update: any): Promise<void> {
             const onboardingResult = await handleOnboarding(null, message, buyer, telegramId);
 
             if (onboardingResult.handled && onboardingResult.response) {
-                console.log("[Onboarding] Handled successfully - sending response");
+                console.log("[Onboarding] ✅ Handled successfully - sending response");
 
                 await sendFormattedMessage(
                     chatId,
@@ -57,21 +57,20 @@ async function processUpdate(update: any): Promise<void> {
                 );
 
                 onboardingHandled = true;
+                console.log("[Onboarding] Setting flag and preparing to RETURN");
             }
         }
     } catch (onboardErr: any) {
         console.error("[Onboarding] Error:", onboardErr?.message || onboardErr);
     }
 
-    // === CRITICAL EARLY EXIT ===
+    // === FORCE EARLY EXIT ===
     if (onboardingHandled) {
-        console.log("[Onboarding] Onboarding handled the request. Skipping normal AI flow.");
-        return;   // This must stop the entire processUpdate function
+        console.log("[Onboarding] 🚀 Onboarding handled the request. FORCE RETURNING now.");
+        return;   // This MUST stop everything
     }
 
-    // === ONLY CONTINUE IF NOT IN ONBOARDING ===
-    console.log("[Bot] User is fully onboarded. Proceeding with normal AI response.");
-
+    console.log("[Bot] User is fully onboarded → Proceeding with normal AI flow");
 
     // 1. Intent Detection (Task 8)
     let intentResult;
