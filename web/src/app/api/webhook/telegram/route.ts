@@ -33,6 +33,9 @@ async function processUpdate(update: any): Promise<void> {
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
 
     // === ONBOARDING CHECK (Early Exit) ===
+    // === ONBOARDING CHECK (Early Exit) - Place this RIGHT AFTER getting telegramId and userName ===
+    let isOnboardingHandled = false;
+
     try {
         const { getBuyer } = await import("@/lib/sanity/buyer");
         const { handleOnboarding } = await import("@/lib/onboarding");
@@ -40,27 +43,36 @@ async function processUpdate(update: any): Promise<void> {
         let buyer = await getBuyer(telegramId);
 
         if (!buyer || buyer.onboardingStep !== "completed") {
-            console.log(`[Onboarding] Checking step for user ${telegramId} (current: ${buyer?.onboardingStep || 'new'})`);
+            console.log(`[Onboarding] Checking for user ${telegramId} (step: ${buyer?.onboardingStep || 'new'})`);
 
             const onboardingResult = await handleOnboarding(null, message, buyer, telegramId);
 
             if (onboardingResult.handled && onboardingResult.response) {
-                console.log("[Onboarding] Handled successfully - sending response");
+                console.log("[Onboarding] Handled successfully");
 
-                // Use your existing formatter to support inline keyboards
                 await sendFormattedMessage(
                     chatId,
                     onboardingResult.response.text,
-                    onboardingResult.response.replyMarkup || undefined
+                    onboardingResult.response.replyMarkup
                 );
 
-                return; // Stop normal AI flow
+                isOnboardingHandled = true;
             }
         }
     } catch (onboardErr: any) {
-        console.error("[Onboarding] Error during check:", onboardErr?.message || onboardErr);
-        // Continue with normal flow if onboarding fails (safety)
+        console.error("[Onboarding] Error:", onboardErr?.message || onboardErr);
     }
+
+    // === CRITICAL: Skip normal AI flow if onboarding handled the message ===
+    if (isOnboardingHandled) {
+        console.log("[Onboarding] Skipping normal AI response");
+        return;
+    }
+
+
+    // ... rest of your original processUpdate code (prompt building, generateText, etc.)
+
+
     // 1. Intent Detection (Task 8)
     let intentResult;
     try {
