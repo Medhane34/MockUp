@@ -12,7 +12,6 @@ import {
 import { sanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
-
 // Allow up to 60s for AI to respond and for us to send the reply
 export const maxDuration = 60;
 // ─── Webhook handler ──────────────────────────────────────────────────────────
@@ -212,7 +211,7 @@ async function processUpdate(update: any): Promise<void> {
 
     // 4. Send response to Telegram (Task 10)
     try {
-        await sendFormattedMessage(chatId, replyText);
+        await sendFormattedMessage(chatId, replyText, null, { parse_mode: undefined });  // Fixed
         console.log("[Bot] Reply sent to Telegram successfully.");
     } catch (err: any) {
         console.error("[Bot] Failed to send Telegram message:", err);
@@ -242,13 +241,16 @@ async function handleOnboardingMessage(message: any, chatId: number) {
         const result = await handleOnboarding(null, message, buyer, telegramId);
 
         if (result.handled && result.response) {
+            // Safe call matching your function signature
             await sendFormattedMessage(
                 chatId,
                 result.response.text,
-                result.response.replyMarkup
+                null,                    // parseMode = null
+                { parse_mode: undefined } // 4th param as expected by your function
             );
         }
     } catch (e) {
         console.error("[Onboarding Handler] Failed:", e);
+        await sendFormattedMessage(chatId, "Welcome! Type /start to begin.", null, { parse_mode: undefined });
     }
 }

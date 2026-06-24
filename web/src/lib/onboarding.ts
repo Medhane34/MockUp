@@ -24,23 +24,21 @@ export async function handleOnboarding(
     // STEP 1: /start → Terms
     if (userText === "/start" || !existingBuyer || existingBuyer.onboardingStep === "welcome") {
         const termsText = `Before we continue, please confirm:\n\n` +
-            `• I agree to Aligoo's Terms of Service and Privacy Policy.\n` +
-            `• You allow us to save your name, phone, and preferences.\n` +
-            `• Your data will only be used to improve your shopping experience.`;
-
-        return {
-            handled: true,
-            response: {
-                text: termsText,
-                replyMarkup: {
-                    inline_keyboard: [
-                        [{ text: "✅ Agree & Continue", callback_data: "onboarding_agree" }],
-                        [{ text: "❌ Reject", callback_data: "onboarding_reject" }]
-                    ]
-                }
-            },
-            buyer: await createOrUpdateBuyer(telegramId, { onboardingStep: "terms" })
-        };
+            `- I agree to Aligoo's Terms of Service and Privacy Policy.\n` +
+            `- You allow us to save your name, phone, and preferences.\n` +
+            `- Your data will only be used to improve your shopping experience.`; return {
+                handled: true,
+                response: {
+                    text: termsText,
+                    replyMarkup: {
+                        inline_keyboard: [
+                            [{ text: "✅ Agree & Continue", callback_data: "onboarding_agree" }],
+                            [{ text: "❌ Reject", callback_data: "onboarding_reject" }]
+                        ]
+                    }
+                },
+                buyer: await createOrUpdateBuyer(telegramId, { onboardingStep: "terms" })
+            };
     }
 
     // Callback handling

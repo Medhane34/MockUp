@@ -28,15 +28,15 @@ export function formatProductList(products: ProductSummary[]): string {
     formatted += `status: ${stockStatus}\n`;
     formatted += `To view details, ask me about: \`${p.name}\`\n\n`;
   });
-  
+
   return formatted.trim();
 }
 
 export function formatProductDetail(product: ProductDetails): string {
-  const stockStatus = product.inStock 
-    ? `🟢 In Stock (${product.stockQuantity ?? 50} units)` 
+  const stockStatus = product.inStock
+    ? `🟢 In Stock (${product.stockQuantity ?? 50} units)`
     : "🔴 Out of Stock";
-  
+
   let formatted = `📦 *${escapeMarkdown(product.name)}*\n`;
   if (product.category) {
     formatted += `📂 Category: _${escapeMarkdown(product.category)}_\n`;
@@ -70,10 +70,7 @@ export function formatWithCTA(text: string, ctaLabel: string, ctaUrl?: string): 
 }
 
 export async function sendFormattedMessage(
-  chatId: number,
-  text: string,
-  parseMode: "Markdown" | "HTML" | null = "Markdown"
-): Promise<void> {
+  chatId: number, text: string, parseMode: "Markdown" | "HTML" | null = "Markdown", p0: { parse_mode: undefined; }): Promise<void> {
   const body: any = {
     chat_id: chatId,
     text: text,
