@@ -73,8 +73,7 @@ export async function sendFormattedMessage(
   chatId: number,
   text: string,
   parseMode: "Markdown" | "HTML" | null = "Markdown",
-  replyMarkup: any = null,
-  options?: { parse_mode?: undefined }
+  replyMarkup: any = null
 ): Promise<void> {
   const body: any = {
     chat_id: chatId,

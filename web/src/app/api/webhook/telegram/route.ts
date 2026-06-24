@@ -7,26 +7,27 @@ import {
     SYSTEM_PROMPT,
     buildInfoPrompt,
     buildSalesPrompt,
-    buildSupportPrompt
+    buildSupportPrompt,
 } from "@/lib/ai/prompts";
 import { sanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
-// Allow up to 60s for AI to respond and for us to send the reply
+
+// Allow up to 60s for AI to respond
 export const maxDuration = 60;
-// ─── Webhook handler ──────────────────────────────────────────────────────────
+
 // ─── Webhook handler ──────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
     console.log("[Webhook] Received a new request");
 
-    // 1. Validate Telegram's secret token header
+    // 1. Validate secret token
     const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
     if (secretHeader !== process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN) {
         console.warn("[Webhook] Invalid secret token — rejecting request");
         return new Response("Unauthorized", { status: 401 });
     }
 
-    // 2. Read body
+    // 2. Parse body
     let update: any;
     try {
         update = await request.json();
@@ -35,43 +36,55 @@ export async function POST(request: NextRequest) {
         return new Response("Bad Request", { status: 400 });
     }
 
-    const message = update.message ?? update.edited_message;
-    if (!message) {
+    // 3. Determine update type:
+    //    - update.message / update.edited_message → regular text/contact message
+    //    - update.callback_query → inline button tap (e.g. "Agree", language, interests)
+    const message = update.message ?? update.edited_message ?? null;
+    const callbackQuery = update.callback_query ?? null;
+
+    if (!message && !callbackQuery) {
+        // Nothing actionable (channel posts, etc.)
         return new Response("OK", { status: 200 });
     }
 
-    const chatId: number = message.chat.id;
-    const telegramId = message.from?.id?.toString() || chatId.toString();
-    const userName: string = message.from?.username ?? message.from?.first_name ?? "user";
+    // Extract chatId and telegramId from whichever update type we got
+    const chatId: number =
+        message?.chat?.id ?? callbackQuery?.message?.chat?.id ?? 0;
+    const telegramId: string =
+        (message?.from?.id ?? callbackQuery?.from?.id)?.toString() ??
+        chatId.toString();
 
-    // === ONBOARDING GATE (HARD GATE) ===
+    if (!chatId) {
+        console.warn("[Webhook] Could not determine chatId, skipping.");
+        return new Response("OK", { status: 200 });
+    }
+
+    // 4. Onboarding gate — check Sanity for completed status
     const isOnboarded = await checkOnboardingComplete(telegramId);
 
     if (!isOnboarded) {
         console.log(`[Onboarding Gate] User ${telegramId} not completed onboarding`);
-        await handleOnboardingMessage(message, chatId);
+        // Pass the full update (not just message) so onboarding.ts can see callback_query
+        await handleOnboardingUpdate(update, chatId, telegramId);
         return new Response("OK", { status: 200 });
     }
 
-    // === Only reach here if fully onboarded ===
+    // 5. Fully onboarded — run AI flow asynchronously
     console.log(`[Bot] User ${telegramId} is onboarded → Running full AI flow`);
-
-    // Run the heavy AI processing
     waitUntil(
         processUpdate(update).catch((err: any) => {
             console.error("[Bot] Unhandled error:", err?.message ?? err);
         })
     );
 
-    // 4. Return 200 immediately
     return new Response("OK", { status: 200 });
 }
 
-// ─── Core AI processing — runs inside waitUntil ───────────────────────────────
+// ─── Core AI processing (runs inside waitUntil) ───────────────────────────────
 async function processUpdate(update: any): Promise<void> {
     const message = update.message ?? update.edited_message;
     if (!message?.text) {
-        console.log("[Bot] No text in update, skipping.");
+        console.log("[Bot] No text in update, skipping AI flow.");
         return;
     }
 
@@ -82,7 +95,8 @@ async function processUpdate(update: any): Promise<void> {
         message.from?.username ?? message.from?.first_name ?? "user";
 
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
-    // 1. Intent Detection (Task 8)
+
+    // 1. Intent Detection
     let intentResult;
     try {
         intentResult = await detectIntent(userText);
@@ -91,31 +105,33 @@ async function processUpdate(update: any): Promise<void> {
         intentResult = { intent: "unknown" as const, confidence: 0, params: undefined };
     }
 
-    // 2. Fetch context based on intent (Task 7 / Task 9 / Task 11)
+    // 2. Fetch context and build prompt based on intent
     let sanityContext = "";
     let prompt = "";
 
     try {
         if (intentResult.intent === "product_browse") {
             const products = await getProductList(intentResult.params?.category);
-            sanityContext = products.length > 0
-                ? JSON.stringify(products.map(p => ({
-                    name: p.name,
-                    slug: p.slug,
-                    price: `${p.price} ETB`,
-                    inStock: p.inStock ? "Yes" : "No",
-                    category: p.category
-                })))
-                : "No products found in this category.";
+            sanityContext =
+                products.length > 0
+                    ? JSON.stringify(
+                        products.map((p) => ({
+                            name: p.name,
+                            slug: p.slug,
+                            price: `${p.price} ETB`,
+                            inStock: p.inStock ? "Yes" : "No",
+                            category: p.category,
+                        }))
+                    )
+                    : "No products found in this category.";
 
             prompt = buildSalesPrompt({
                 userName,
                 userMessage: userText,
                 detectedIntent: "product_browse",
-                sanityContext
+                sanityContext,
             });
-        }
-        else if (intentResult.intent === "product_detail") {
+        } else if (intentResult.intent === "product_detail") {
             let product = null;
             if (intentResult.params?.slug) {
                 product = await getProductDetails(intentResult.params.slug);
@@ -128,7 +144,7 @@ async function processUpdate(update: any): Promise<void> {
                     inStock: product.inStock ? "Yes" : "No",
                     stockQuantity: product.stockQuantity,
                     description: product.description,
-                    features: product.features
+                    features: product.features,
                 })
                 : "Product details not found. Please check spelling or use the search tool.";
 
@@ -136,53 +152,52 @@ async function processUpdate(update: any): Promise<void> {
                 userName,
                 userMessage: userText,
                 detectedIntent: "product_detail",
-                sanityContext
+                sanityContext,
             });
-        }
-        else if (intentResult.intent === "faq") {
+        } else if (intentResult.intent === "faq") {
             const faqs = await getFAQs(intentResult.params?.faqCategory);
-            sanityContext = faqs.length > 0
-                ? JSON.stringify(faqs.map(f => ({
-                    question: f.question,
-                    answer: f.answer,
-                    category: f.category
-                })))
-                : "No FAQs found.";
+            sanityContext =
+                faqs.length > 0
+                    ? JSON.stringify(
+                        faqs.map((f) => ({
+                            question: f.question,
+                            answer: f.answer,
+                            category: f.category,
+                        }))
+                    )
+                    : "No FAQs found.";
 
             prompt = buildInfoPrompt({
                 userName,
                 userMessage: userText,
                 detectedIntent: "faq",
-                sanityContext
+                sanityContext,
             });
-        }
-        else if (intentResult.intent === "order") {
+        } else if (intentResult.intent === "order") {
             prompt = buildSupportPrompt({
                 userName,
                 userMessage: userText,
                 detectedIntent: "order",
-                sanityContext: "Order flow: Ask user for their contact details (name, phone, address) to place an order, or direct them to contact support at @aligoo_support."
+                sanityContext:
+                    "Order flow: Ask user for their contact details (name, phone, address) to place an order, or direct them to contact support at @aligoo_support.",
             });
-        }
-        else if (intentResult.intent === "greeting") {
+        } else if (intentResult.intent === "greeting") {
             prompt = `User message: "${userText}"
             
-            Instructions: Welcome the user friendly. Introduce yourself as Aligoo Shopping Assistant. Mention that you can:
-            1. Help them browse our products (categories: electronics, fashion, home, beauty, agriculture).
+            Instructions: Welcome the user warmly. Introduce yourself as Aligoo Shopping Assistant. Mention that you can:
+            1. Help them browse products (categories: electronics, fashion, home, beauty, agriculture).
             2. Provide product details.
             3. Answer FAQs about shipping, returns, delivery, payments.
             4. Help place an order.
             
             Ask them how you can assist today.`;
-        }
-        else {
-            // Task 11: Fallback System for unknown intent
+        } else {
+            // Fallback for unknown intent
             prompt = `User message: "${userText}"
             
-            Instructions: This message does not match our typical queries. Be polite, say you didn't quite catch that, and friendly redirect them to ask about our product catalog, order status, FAQs (shipping, returns, pricing), or contact support at @aligoo_support.`;
+            Instructions: This message does not match typical queries. Be polite, say you didn't quite catch that, and redirect them to ask about our product catalog, order status, FAQs (shipping, returns, pricing), or contact support at @aligoo_support.`;
         }
     } catch (err: any) {
-        // Task 11: Tool/query fetch error fallback
         console.error("[Bot] Context retrieval failed:", err);
         sanityContext = "Error retrieving details from catalog database.";
         prompt = `User message: "${userText}"
@@ -204,22 +219,23 @@ async function processUpdate(update: any): Promise<void> {
         replyText = result.text;
     } catch (err: any) {
         console.error("[Bot] Gemini API execution failed:", err);
-        replyText = "⚠️ I'm sorry, I encountered an error while processing your request. Please try again later or contact our support team at @aligoo_support.";
+        replyText =
+            "⚠️ I'm sorry, I encountered an error while processing your request. Please try again later or contact our support team at @aligoo_support.";
     }
 
     console.log("[Bot] Gemini responded:", replyText.slice(0, 100));
 
-    // 4. Send response to Telegram (Task 10)
+    // 3. Send response to Telegram
     try {
-        await sendFormattedMessage(chatId, replyText, null, { parse_mode: undefined });  // Fixed
+        await sendFormattedMessage(chatId, replyText, "Markdown");
         console.log("[Bot] Reply sent to Telegram successfully.");
     } catch (err: any) {
         console.error("[Bot] Failed to send Telegram message:", err);
     }
 }
 
+// ─── Onboarding Helpers ───────────────────────────────────────────────────────
 
-// ─── Onboarding Helpers ──────────────────────────────────────────────────────────
 async function checkOnboardingComplete(telegramId: string): Promise<boolean> {
     try {
         const { getBuyer } = await import("@/lib/sanity/buyer");
@@ -231,27 +247,39 @@ async function checkOnboardingComplete(telegramId: string): Promise<boolean> {
     }
 }
 
-async function handleOnboardingMessage(message: any, chatId: number) {
+/**
+ * Handles the onboarding flow for users who haven't completed it yet.
+ * Passes the full Telegram `update` object so onboarding.ts can inspect
+ * both update.message and update.callback_query at the root level.
+ */
+async function handleOnboardingUpdate(
+    update: any,
+    chatId: number,
+    telegramId: string
+) {
     try {
         const { handleOnboarding } = await import("@/lib/onboarding");
-        const telegramId = message.from?.id?.toString() || message.chat?.id?.toString();
         const { getBuyer } = await import("@/lib/sanity/buyer");
 
         const buyer = await getBuyer(telegramId);
-        const result = await handleOnboarding(null, message, buyer, telegramId);
+        // Pass the full update object — onboarding.ts reads update.callback_query directly
+        const result = await handleOnboarding(null, update, buyer, telegramId);
 
         if (result.handled && result.response) {
-            // Safe call matching your function signature
             await sendFormattedMessage(
                 chatId,
                 result.response.text,
-                "Markdown", // explicitly pass a default parseMode string or null
-                result.response.replyMarkup, // now passes your inline keyboard buttons safely
-                { parse_mode: undefined }
+                "Markdown",
+                result.response.replyMarkup ?? null
             );
         }
     } catch (e) {
         console.error("[Onboarding Handler] Failed:", e);
-        await sendFormattedMessage(chatId, "Welcome! Type /start to begin.", null, { parse_mode: undefined });
+        // Safe fallback so user isn't left hanging
+        await sendFormattedMessage(
+            chatId,
+            "Welcome to Aligoo! Type /start to begin.",
+            null
+        );
     }
 }
