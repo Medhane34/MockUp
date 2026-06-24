@@ -41,52 +41,77 @@ async function getConversationHistory(threadId: string, limit = 8) {
 async function saveToHistory(threadId: string, role: "user" | "assistant", content: string) { /* ... same as before */ }
 
 // Main Handler
+// Shared AI logic with Memory + Onboarding
 async function handleAIResponse(thread: any, message: any) {
     const telegramId = message.from?.id?.toString() || message.chat?.id?.toString() || "unknown";
     const threadId = thread.id || telegramId;
 
     try {
+        console.log(`[Bot] Processing message for user ${telegramId}`);
+
         await thread.subscribe();
 
-        const userText = typeof message.text === "string" ? message.text : (message.content?.text ?? "Hello");
+        const userText = typeof message.text === "string"
+            ? message.text
+            : (message.content?.text ?? "Hello");
 
-        // === Check Buyer + Onboarding ===
+        console.log("[Bot] User message:", userText);
+
+        // === 1. Check Buyer + Onboarding Flow ===
         let buyer = await getBuyer(telegramId);
 
         if (!buyer || buyer.onboardingStep !== "completed") {
-            const result = await handleOnboarding(thread, message, buyer, telegramId);
-            if (result.handled) return;   // Onboarding is in progress
-            buyer = result.buyer;         // Updated buyer
+            console.log(`[Onboarding] User ${telegramId} is in onboarding step: ${buyer?.onboardingStep || 'new'}`);
+
+            const onboardingResult = await handleOnboarding(thread, message, buyer, telegramId);
+
+            if (onboardingResult.handled) {
+                console.log("[Onboarding] Handled by onboarding flow");
+                return; // Important: Stop here, do not go to normal AI response
+            }
+
+            buyer = onboardingResult.buyer; // Use possibly updated buyer
         }
 
-        // Normal conversation flow (after onboarding)
+        // === 2. Normal Conversation Flow (After Onboarding) ===
+        console.log(`[Bot] User ${telegramId} is fully onboarded. Proceeding with normal response.`);
+
         const history = await getConversationHistory(threadId, 8);
 
         const contents = [
-            ...history.map((msg: any) => ({ role: msg.role, parts: [{ text: msg.content }] })),
+            ...history.map((msg: any) => ({
+                role: msg.role,
+                parts: [{ text: msg.content }]
+            })),
             { role: "user", parts: [{ text: userText }] }
         ];
+
+        console.log("[Bot] Calling Gemini with context...");
 
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-lite",
             contents,
         });
 
-        const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text ?? "Sorry, I couldn't respond.";
+        const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text
+            ?? "Sorry, I couldn't generate a response right now.";
 
+        console.log("[Bot] Gemini responded:", replyText.slice(0, 80));
+
+        // Save to memory
         await saveToHistory(threadId, "user", userText);
         await saveToHistory(threadId, "assistant", replyText);
 
         await thread.post(replyText);
 
-        // Light update (not on every message)
-        if (Math.random() < 0.2) { // ~20% chance to reduce calls
+        // Light buyer update (optimized - not every message)
+        if (Math.random() < 0.25) {
             await updateBuyerInteraction(telegramId);
         }
 
     } catch (error: any) {
-        console.error("[Bot] ERROR:", error?.message ?? error);
-        await thread.post("Sorry, I'm having trouble right now.").catch(() => { });
+        console.error("[Bot] ERROR in handleAIResponse:", error?.message ?? error);
+        await thread.post("Sorry, I'm having trouble right now. Please try again.").catch(() => { });
     }
 }
 
