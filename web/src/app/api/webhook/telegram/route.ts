@@ -3,11 +3,11 @@ import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { generateText } from "ai";
 import { detectIntent } from "@/lib/ai/intent";
-import { 
-  SYSTEM_PROMPT, 
-  buildInfoPrompt, 
-  buildSalesPrompt, 
-  buildSupportPrompt
+import {
+    SYSTEM_PROMPT,
+    buildInfoPrompt,
+    buildSalesPrompt,
+    buildSupportPrompt
 } from "@/lib/ai/prompts";
 import { sanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
@@ -26,11 +26,40 @@ async function processUpdate(update: any): Promise<void> {
 
     const chatId: number = message.chat.id;
     const userText: string = message.text;
+    const telegramId = message.from?.id?.toString() || chatId.toString();
     const userName: string =
         message.from?.username ?? message.from?.first_name ?? "user";
 
     console.log(`[Bot] Message from ${userName}: "${userText}"`);
 
+
+    // === NEW: ONBOARDING CHECK (Early Exit) ===
+    try {
+
+        const { getBuyer, createOrUpdateBuyer } = await import("@/lib/sanity/buyer");
+        const { handleOnboarding } = await import("@/lib/onboarding");
+
+        let buyer = await getBuyer(telegramId);
+
+        if (!buyer || buyer.onboardingStep !== "completed") {
+            console.log(`[Onboarding] Checking onboarding for user ${telegramId}`);
+
+            const onboardingResult = await handleOnboarding({
+                post: async (content: any) => {
+                    // Use your existing sendFormattedMessage
+                    await sendFormattedMessage(chatId, typeof content === 'string' ? content : content.text);
+                }
+            }, message, buyer, telegramId);   // Pass adapted thread
+
+            if (onboardingResult.handled) {
+                console.log("[Onboarding] Handled successfully");
+                return; // Stop normal flow
+            }
+        }
+    } catch (onboardErr: any) {
+        console.error("[Onboarding] Error during check:", onboardErr);
+        // Continue with normal flow if onboarding fails
+    }
     // 1. Intent Detection (Task 8)
     let intentResult;
     try {
@@ -47,29 +76,29 @@ async function processUpdate(update: any): Promise<void> {
     try {
         if (intentResult.intent === "product_browse") {
             const products = await getProductList(intentResult.params?.category);
-            sanityContext = products.length > 0 
+            sanityContext = products.length > 0
                 ? JSON.stringify(products.map(p => ({
                     name: p.name,
                     slug: p.slug,
                     price: `${p.price} ETB`,
                     inStock: p.inStock ? "Yes" : "No",
                     category: p.category
-                  })))
+                })))
                 : "No products found in this category.";
-            
+
             prompt = buildSalesPrompt({
                 userName,
                 userMessage: userText,
                 detectedIntent: "product_browse",
                 sanityContext
             });
-        } 
+        }
         else if (intentResult.intent === "product_detail") {
             let product = null;
             if (intentResult.params?.slug) {
                 product = await getProductDetails(intentResult.params.slug);
             }
-            sanityContext = product 
+            sanityContext = product
                 ? JSON.stringify({
                     name: product.name,
                     slug: product.slug,
@@ -78,16 +107,16 @@ async function processUpdate(update: any): Promise<void> {
                     stockQuantity: product.stockQuantity,
                     description: product.description,
                     features: product.features
-                  })
+                })
                 : "Product details not found. Please check spelling or use the search tool.";
-            
+
             prompt = buildSalesPrompt({
                 userName,
                 userMessage: userText,
                 detectedIntent: "product_detail",
                 sanityContext
             });
-        } 
+        }
         else if (intentResult.intent === "faq") {
             const faqs = await getFAQs(intentResult.params?.faqCategory);
             sanityContext = faqs.length > 0
@@ -95,16 +124,16 @@ async function processUpdate(update: any): Promise<void> {
                     question: f.question,
                     answer: f.answer,
                     category: f.category
-                  })))
+                })))
                 : "No FAQs found.";
-            
+
             prompt = buildInfoPrompt({
                 userName,
                 userMessage: userText,
                 detectedIntent: "faq",
                 sanityContext
             });
-        } 
+        }
         else if (intentResult.intent === "order") {
             prompt = buildSupportPrompt({
                 userName,
@@ -112,7 +141,7 @@ async function processUpdate(update: any): Promise<void> {
                 detectedIntent: "order",
                 sanityContext: "Order flow: Ask user for their contact details (name, phone, address) to place an order, or direct them to contact support at @aligoo_support."
             });
-        } 
+        }
         else if (intentResult.intent === "greeting") {
             prompt = `User message: "${userText}"
             
@@ -123,7 +152,7 @@ async function processUpdate(update: any): Promise<void> {
             4. Help place an order.
             
             Ask them how you can assist today.`;
-        } 
+        }
         else {
             // Task 11: Fallback System for unknown intent
             prompt = `User message: "${userText}"
