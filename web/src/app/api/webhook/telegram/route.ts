@@ -245,8 +245,9 @@ async function handleOnboardingMessage(message: any, chatId: number) {
             await sendFormattedMessage(
                 chatId,
                 result.response.text,
-                null,                    // parseMode = null
-                { parse_mode: undefined } // 4th param as expected by your function
+                "Markdown", // explicitly pass a default parseMode string or null
+                result.response.replyMarkup, // now passes your inline keyboard buttons safely
+                { parse_mode: undefined }
             );
         }
     } catch (e) {

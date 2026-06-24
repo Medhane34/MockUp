@@ -1,47 +1,49 @@
 // src/lib/onboarding.ts
-
 import { client } from "@/sanity/client";
 import { createOrUpdateBuyer } from "./sanity/buyer";
-// src/lib/onboarding.ts
 
 type OnboardingResult = {
     handled: boolean;
-    response?: any;     // text + replyMarkup
+    response?: {
+        text: string;
+        replyMarkup?: any;
+    };
     buyer?: any;
 };
 
 export async function handleOnboarding(
-
     thread: any,
     message: any,
     existingBuyer: any,
     telegramId: string
 ): Promise<OnboardingResult> {
-
     const rawText = typeof message.text === "string" ? message.text.trim() : "";
     const userText = rawText.toLowerCase();
 
-    // STEP 1: /start → Terms
-    if (userText === "/start" || !existingBuyer || existingBuyer.onboardingStep === "welcome") {
+    console.log(`[Onboarding] User ${telegramId} - Step: ${existingBuyer?.onboardingStep || 'new'}`);
+
+    // STEP 1: /start → Terms Confirmation (NO Buyer creation yet)
+    if (userText === "/start") {
         const termsText = `Before we continue, please confirm:\n\n` +
             `- I agree to Aligoo's Terms of Service and Privacy Policy.\n` +
             `- You allow us to save your name, phone, and preferences.\n` +
-            `- Your data will only be used to improve your shopping experience.`; return {
-                handled: true,
-                response: {
-                    text: termsText,
-                    replyMarkup: {
-                        inline_keyboard: [
-                            [{ text: "✅ Agree & Continue", callback_data: "onboarding_agree" }],
-                            [{ text: "❌ Reject", callback_data: "onboarding_reject" }]
-                        ]
-                    }
-                },
-                buyer: await createOrUpdateBuyer(telegramId, { onboardingStep: "terms" })
-            };
+            `- Your data will only be used to improve your shopping experience.`;
+
+        return {
+            handled: true,
+            response: {
+                text: termsText,
+                replyMarkup: {
+                    inline_keyboard: [
+                        [{ text: "✅ Agree & Continue", callback_data: "onboarding_agree" }],
+                        [{ text: "❌ Reject", callback_data: "onboarding_reject" }]
+                    ]
+                }
+            }
+        };
     }
 
-    // Callback handling
+    // Handle Inline Button Clicks
     if (message.callback_query) {
         const cbData = message.callback_query.data;
 
@@ -53,7 +55,12 @@ export async function handleOnboarding(
         }
 
         if (cbData === "onboarding_agree") {
-            await createOrUpdateBuyer(telegramId, { onboardingStep: "name" });
+            // Create Buyer document ONLY after user agrees
+            await createOrUpdateBuyer(telegramId, {
+                username: message.from?.username || message.author?.userName,
+                onboardingStep: "name"
+            });
+
             return {
                 handled: true,
                 response: { text: "Great! What's your full name?" }
@@ -61,7 +68,7 @@ export async function handleOnboarding(
         }
     }
 
-    // STEP 2: Name
+    // STEP 2: Name Collection
     if (existingBuyer?.onboardingStep === "name") {
         const fullName = rawText;
         const firstName = fullName.split(" ")[0];
@@ -85,7 +92,7 @@ export async function handleOnboarding(
         };
     }
 
-    // STEP 3: Phone (Contact)
+    // STEP 3: Phone Number (Contact Share)
     if (message.contact && existingBuyer?.onboardingStep === "phone") {
         await createOrUpdateBuyer(telegramId, {
             phone: message.contact.phone_number,
@@ -106,11 +113,10 @@ export async function handleOnboarding(
         };
     }
 
-    // STEP 4: Language + Final Step (Interests)
+    // STEP 4: Language + Final Step
     if (message.callback_query?.data?.startsWith("lang_")) {
         const lang = message.callback_query.data === "lang_am" ? "am" : "en";
         await createOrUpdateBuyer(telegramId, { preferredLanguage: lang, onboardingStep: "interests" });
-
         return await showInterestCategories(telegramId);
     }
 

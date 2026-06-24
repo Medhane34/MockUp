@@ -70,7 +70,12 @@ export function formatWithCTA(text: string, ctaLabel: string, ctaUrl?: string): 
 }
 
 export async function sendFormattedMessage(
-  chatId: number, text: string, parseMode: "Markdown" | "HTML" | null = "Markdown", p0: { parse_mode: undefined; }): Promise<void> {
+  chatId: number,
+  text: string,
+  parseMode: "Markdown" | "HTML" | null = "Markdown",
+  replyMarkup: any = null,
+  options?: { parse_mode?: undefined }
+): Promise<void> {
   const body: any = {
     chat_id: chatId,
     text: text,
@@ -78,6 +83,10 @@ export async function sendFormattedMessage(
 
   if (parseMode) {
     body.parse_mode = parseMode;
+  }
+
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
   }
 
   const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -88,10 +97,9 @@ export async function sendFormattedMessage(
 
   if (!res.ok) {
     const err = await res.text();
-    // If Markdown parsing fails, try sending as plain text to be resilient
     if (parseMode === "Markdown" && res.status === 400) {
       console.warn("[Telegram] Markdown parsing failed, retrying with plain text...");
-      const fallbackBody = { chat_id: chatId, text };
+      const fallbackBody = { chat_id: chatId, text, reply_markup: replyMarkup };
       const fallbackRes = await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
