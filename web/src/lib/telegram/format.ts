@@ -1,7 +1,5 @@
 import { ProductSummary, ProductDetails } from "@/lib/sanity/queries";
 
-const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
-
 /**
  * Escapes characters that might break Telegram's standard Markdown parsing.
  * In legacy 'Markdown' mode, we need to escape '*', '_', '`', and '['.
@@ -14,12 +12,13 @@ export function escapeMarkdown(text: string): string {
     .replace(/\[/g, "\\[");
 }
 
-export function formatProductList(products: ProductSummary[]): string {
+export function formatProductList(products: ProductSummary[], companyName?: string): string {
   if (products.length === 0) {
     return "😔 No products found in this category.";
   }
 
-  let formatted = "🛍 *Aligoo Product Catalog*\n\n";
+  const title = companyName ? `*${escapeMarkdown(companyName)} Product Catalog*` : "*Product Catalog*";
+  let formatted = `🛍 ${title}\n\n`;
   products.forEach((p) => {
     const stockStatus = p.inStock ? "🟢 In Stock" : "🔴 Out of Stock";
     const categoryText = p.category ? ` (${p.category})` : "";
@@ -70,11 +69,17 @@ export function formatWithCTA(text: string, ctaLabel: string, ctaUrl?: string): 
 }
 
 export async function sendFormattedMessage(
+  botToken: string,
   chatId: number,
   text: string,
   parseMode: "Markdown" | "HTML" | null = "Markdown",
   replyMarkup: any = null
 ): Promise<void> {
+  if (!botToken) {
+    throw new Error("sendFormattedMessage: botToken is required for multi-tenant message sending");
+  }
+
+  const telegramApi = `https://api.telegram.org/bot${botToken}`;
   const body: any = {
     chat_id: chatId,
     text: text,
@@ -88,7 +93,7 @@ export async function sendFormattedMessage(
     body.reply_markup = replyMarkup;
   }
 
-  const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
+  const res = await fetch(`${telegramApi}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -99,7 +104,7 @@ export async function sendFormattedMessage(
     if (parseMode === "Markdown" && res.status === 400) {
       console.warn("[Telegram] Markdown parsing failed, retrying with plain text...");
       const fallbackBody = { chat_id: chatId, text, reply_markup: replyMarkup };
-      const fallbackRes = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      const fallbackRes = await fetch(`${telegramApi}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fallbackBody),
