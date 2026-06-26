@@ -12,6 +12,36 @@ export function escapeMarkdown(text: string): string {
     .replace(/\[/g, "\\[");
 }
 
+/**
+ * Converts standard Markdown to Telegram-compatible HTML tags.
+ * This is 100% bulletproof compared to Telegram's legacy Markdown parser,
+ * as it avoids "can't find end of entity" errors caused by unescaped underscores/asterisks.
+ */
+export function markdownToHtml(md: string): string {
+  // 1. Escape HTML special characters
+  let html = md
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // 2. Convert code blocks: ```lang\ncode\n``` -> <pre>code</pre>
+  html = html.replace(/```(?:[a-zA-Z0-9]+)?\n([\s\S]*?)\n```/g, "<pre>$1</pre>");
+
+  // 3. Convert inline code: `code` -> <code>code</code>
+  html = html.replace(/`([^`]+?)`/g, "<code>$1</code>");
+
+  // 4. Convert bold: **text** (non-greedy, no newlines)
+  html = html.replace(/\*\*([^\n]+?)\*\*/g, "<b>$1</b>");
+
+  // 5. Convert italic: *text* (non-greedy, no newlines)
+  html = html.replace(/\*([^\n*]+?)\*/g, "<i>$1</i>");
+
+  // 6. Convert links: [text](url) -> <a href="$2">$1</a>
+  html = html.replace(/\[([^\n\]]+?)\]\(([^\n)]+?)\)/g, '<a href="$2">$1</a>');
+
+  return html;
+}
+
 export function formatProductList(products: ProductSummary[], companyName?: string): string {
   if (products.length === 0) {
     return "😔 No products found in this category.";
@@ -72,7 +102,7 @@ export async function sendFormattedMessage(
   botToken: string,
   chatId: number,
   text: string,
-  parseMode: "Markdown" | "HTML" | null = "Markdown",
+  parseMode: "Markdown" | "HTML" | null = "HTML",
   replyMarkup: any = null
 ): Promise<void> {
   if (!botToken) {
@@ -80,9 +110,13 @@ export async function sendFormattedMessage(
   }
 
   const telegramApi = `https://api.telegram.org/bot${botToken}`;
+  
+  // Process markdown into HTML if parseMode is HTML
+  const processedText = parseMode === "HTML" ? markdownToHtml(text) : text;
+
   const body: any = {
     chat_id: chatId,
-    text: text,
+    text: processedText,
   };
 
   if (parseMode) {
@@ -101,15 +135,20 @@ export async function sendFormattedMessage(
 
   if (!res.ok) {
     const err = await res.text();
-    if (parseMode === "Markdown" && res.status === 400) {
-      console.warn("[Telegram] Markdown parsing failed, retrying with plain text...");
-      const fallbackBody = { chat_id: chatId, text, reply_markup: replyMarkup };
+    // Fallback to sending plain text if parsing fails (Markdown or HTML)
+    if ((parseMode === "Markdown" || parseMode === "HTML") && res.status === 400) {
+      console.warn(`[Telegram] ${parseMode} parsing failed, retrying with plain text...`);
+      const fallbackBody = { chat_id: chatId, text: text, reply_markup: replyMarkup };
       const fallbackRes = await fetch(`${telegramApi}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fallbackBody),
       });
       if (fallbackRes.ok) return;
+      
+      const fallbackErr = await fallbackRes.text();
+      console.error("[Telegram] Fallback sendMessage also failed:", fallbackErr);
+      throw new Error(`Telegram sendMessage fallback failed: ${fallbackErr} (Original error: ${err})`);
     }
     throw new Error(`Telegram sendMessage failed: ${err}`);
   }

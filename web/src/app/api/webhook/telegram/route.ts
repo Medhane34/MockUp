@@ -240,7 +240,7 @@ async function processUpdate(
 
     // 4. Send response to Telegram
     try {
-        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "Markdown");
+        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "HTML");
         console.log(`[Bot][${tenant.companyName}] Reply sent to Telegram.`);
     } catch (err: any) {
         console.error(`[Bot][${tenant.companyName}] Failed to send Telegram message:`, err);
@@ -282,7 +282,7 @@ async function handleOnboardingUpdate(
                 tenant.telegramBotToken,
                 chatId,
                 result.response.text,
-                "Markdown",
+                "HTML",
                 result.response.replyMarkup ?? null
             );
         }
