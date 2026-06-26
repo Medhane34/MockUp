@@ -1,38 +1,59 @@
+// src/lib/ai/tools.ts
 import { tool } from "ai";
 import { z } from "zod";
+import type { SanityClient } from "next-sanity";
+import type { TenantContext } from "@/types/tenant";
 import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
 
-export const sanityTools = {
-  getProductList: tool({
-    description: "Get the list of products from the Aligoo shop, optionally filtered by category (electronics, fashion, home, beauty, agriculture).",
-    inputSchema: z.object({
-      category: z.string().optional().describe("Optional product category: electronics, fashion, home, beauty, agriculture."),
-    }),
-    execute: async ({ category }) => {
-      return await getProductList(category);
-    },
-  }),
-  getProductDetails: tool({
-    description: "Get detailed information about a specific product, including price, stock status, features, and description, using its slug.",
-    inputSchema: z.object({
-      slug: z.string().describe("The unique slug of the product (e.g., 'electronics-item', 'cotton-shirt')."),
-    }),
-    execute: async ({ slug }) => {
-      const details = await getProductDetails(slug);
-      if (!details) {
-        return { error: `Product with slug '${slug}' not found.` };
-      }
-      return details;
-    },
-  }),
-  getFAQs: tool({
-    description: "Get Frequently Asked Questions (FAQs) related to General, Shipping, Returns, Pricing, or Product.",
-    inputSchema: z.object({
-      category: z.string().optional().describe("Optional FAQ category: General, Shipping, Returns, Pricing, Product."),
-    }),
-    execute: async ({ category }) => {
-      return await getFAQs(category);
-    },
-  }),
-};
-export type SanityTools = typeof sanityTools;
+/**
+ * Builds tenant-aware Vercel AI SDK tools.
+ * The tool descriptions are niche-adaptive so the AI understands the context correctly.
+ *
+ * @param tenantClient - Pre-built Sanity client for this tenant's project
+ * @param tenant - TenantContext for niche-aware descriptions
+ */
+export function buildSanityTools(tenantClient: SanityClient, tenant: TenantContext) {
+    const itemLabel = tenant.niche === 'services'
+        ? 'services'
+        : tenant.niche === 'travel'
+            ? 'packages and tours'
+            : 'products';
+
+    return {
+        getProductList: tool({
+            description: `Get the list of ${itemLabel} from the ${tenant.companyName} catalog, optionally filtered by category.`,
+            inputSchema: z.object({
+                category: z.string().optional().describe(`Optional category filter for the ${itemLabel}.`),
+            }),
+            execute: async ({ category }) => {
+                return await getProductList(tenantClient, category);
+            },
+        }),
+
+        getProductDetails: tool({
+            description: `Get detailed information about a specific ${itemLabel.replace(/s$/, '')} from ${tenant.companyName}, including price, availability, and description.`,
+            inputSchema: z.object({
+                slug: z.string().describe(`The unique slug of the ${itemLabel.replace(/s$/, '')} (e.g., 'leather-bag', 'haircut-package').`),
+            }),
+            execute: async ({ slug }) => {
+                const details = await getProductDetails(tenantClient, slug);
+                if (!details) {
+                    return { error: `Item with slug '${slug}' not found in ${tenant.companyName}'s catalog.` };
+                }
+                return details;
+            },
+        }),
+
+        getFAQs: tool({
+            description: `Get Frequently Asked Questions for ${tenant.companyName}, covering topics like General, Shipping, Returns, Pricing, or Product.`,
+            inputSchema: z.object({
+                category: z.string().optional().describe("Optional FAQ category: General, Shipping, Returns, Pricing, Product."),
+            }),
+            execute: async ({ category }) => {
+                return await getFAQs(tenantClient, category);
+            },
+        }),
+    };
+}
+
+export type SanityTools = ReturnType<typeof buildSanityTools>;

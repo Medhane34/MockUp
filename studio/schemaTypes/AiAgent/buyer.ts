@@ -6,9 +6,11 @@ export default defineType({
     type: 'document',
     fields: [
         // defineField({ name: 'telegramId', title: 'Telegram ID', type: 'string', validation: Rule => Rule.required() }),
+
         defineField({ name: 'telegramId', type: 'string', validation: Rule => Rule.required() }),
         defineField({ name: 'username', type: 'string' }),
         defineField({ name: 'firstName', type: 'string' }),
+        defineField({ name: 'phone', type: 'string', description: 'Phone number shared via Telegram contact' }),
         defineField({ name: 'preferredLanguage', type: 'string', options: { list: ['en', 'am'] } }),
         defineField({ name: 'status', type: 'string', initialValue: 'raw', options: { list: ['raw', 'new', 'qualified', 'quoted', 'customer', 'lost'] } }),
         defineField({ name: 'interests', type: 'array', of: [{ type: 'string' }] }),

@@ -1,5 +1,6 @@
 // src/lib/onboarding.ts
-import { client } from "@/sanity/client";
+import type { SanityClient } from "next-sanity";
+import type { TenantContext } from "@/types/tenant";
 import { createOrUpdateBuyer } from "./sanity/buyer";
 
 type OnboardingResult = {
@@ -19,7 +20,9 @@ export async function handleOnboarding(
     _thread: any,
     update: any,
     existingBuyer: any,
-    telegramId: string
+    telegramId: string,
+    tenant: TenantContext,
+    tenantClient: SanityClient
 ): Promise<OnboardingResult> {
     // Telegram sends either update.message or update.callback_query at the root level
     const msg = update.message ?? update.edited_message ?? null;
@@ -31,14 +34,14 @@ export async function handleOnboarding(
     // Derive `from` regardless of update type
     const from = msg?.from ?? cbQuery?.from ?? null;
 
-    console.log(`[Onboarding] User ${telegramId} - Step: ${existingBuyer?.onboardingStep || 'new'}`);
+    console.log(`[Onboarding][${tenant.companyName}] User ${telegramId} - Step: ${existingBuyer?.onboardingStep || 'new'}`);
 
     // ─── STEP 1: /start → show Terms ───────────────────────────────────────────
     if (userText === "/start") {
         const termsText =
             `Before we continue, please confirm:\n\n` +
-            `• I agree to Aligoo's Terms of Service and Privacy Policy.\n` +
-            `• You allow us to save your name, phone, and preferences.\n` +
+            `• I agree to ${tenant.companyName}'s Terms of Service and Privacy Policy.\n` +
+            `• You allow us to save your first name, phone, and preferences.\n` +
             `• Your data will only be used to improve your shopping experience.`;
 
         return {
@@ -62,7 +65,7 @@ export async function handleOnboarding(
         if (cbData === "onboarding_reject") {
             return {
                 handled: true,
-                response: { text: "No problem! You can still chat with me.\n\nFor support: @aligoo_support" },
+                response: { text: `No problem! You can still chat with me.\n\nFor support: ${tenant.supportHandle}` },
             };
         }
 
@@ -71,11 +74,11 @@ export async function handleOnboarding(
             await createOrUpdateBuyer(telegramId, {
                 username: from?.username,
                 onboardingStep: "name",
-            });
+            }, tenantClient);
 
             return {
                 handled: true,
-                response: { text: "Great! What's your full name?" },
+                response: { text: "Great! What's your first name?" },
             };
         }
 
@@ -85,8 +88,8 @@ export async function handleOnboarding(
             await createOrUpdateBuyer(telegramId, {
                 preferredLanguage: lang,
                 onboardingStep: "interests",
-            });
-            return await showInterestCategories(telegramId);
+            }, tenantClient);
+            return await showInterestCategories(telegramId, tenantClient);
         }
 
         // ─── Interest selection ─────────────────────────────────────────────────
@@ -96,7 +99,7 @@ export async function handleOnboarding(
                 interests: [interest],
                 onboardingStep: "completed",
                 status: "raw",
-            });
+            }, tenantClient);
             return {
                 handled: true,
                 response: {
@@ -108,14 +111,12 @@ export async function handleOnboarding(
 
     // ─── STEP 2: Name Collection ────────────────────────────────────────────────
     if (existingBuyer?.onboardingStep === "name" && rawText) {
-        const fullName = rawText;
-        const firstName = fullName.split(" ")[0];
+        const firstName = rawText.split(" ")[0];
 
         await createOrUpdateBuyer(telegramId, {
             firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1),
-            fullName,
             onboardingStep: "phone",
-        });
+        }, tenantClient);
 
         return {
             handled: true,
@@ -135,7 +136,7 @@ export async function handleOnboarding(
         await createOrUpdateBuyer(telegramId, {
             phone: msg.contact.phone_number,
             onboardingStep: "language",
-        });
+        }, tenantClient);
 
         return {
             handled: true,
@@ -155,10 +156,10 @@ export async function handleOnboarding(
 }
 
 // ─── Helper: Show dynamic product categories as inline buttons ────────────────
-async function showInterestCategories(telegramId: string): Promise<OnboardingResult> {
+async function showInterestCategories(telegramId: string, tenantClient: SanityClient): Promise<OnboardingResult> {
     try {
         // array::unique() is the correct GROQ syntax for deduplication
-        const cats: string[] = await client.fetch(
+        const cats: string[] = await tenantClient.fetch(
             `array::unique(*[_type == "product" && defined(category)].category)`
         );
 
@@ -179,7 +180,7 @@ async function showInterestCategories(telegramId: string): Promise<OnboardingRes
     } catch (e) {
         console.error("[Onboarding] Categories fetch failed:", e);
         // Graceful fallback: skip interest step, mark completed
-        await createOrUpdateBuyer(telegramId, { onboardingStep: "completed", status: "raw" });
+        await createOrUpdateBuyer(telegramId, { onboardingStep: "completed", status: "raw" }, tenantClient);
         return {
             handled: true,
             response: { text: "You're all set! 🎉\n\nHow can I help you today?" },

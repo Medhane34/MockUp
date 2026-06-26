@@ -5,6 +5,7 @@ export default defineType({
     title: 'FAQ',
     type: 'document',
     fields: [
+
         defineField({
             name: 'question',
             title: 'Question',

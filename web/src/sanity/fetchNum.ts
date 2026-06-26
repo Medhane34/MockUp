@@ -1,4 +1,4 @@
-import { client } from "@/sanity/client";
+import { adminClient } from "@/sanity/client";
 
 export async function getPwaStats() {
     const query = `{
@@ -19,7 +19,7 @@ export async function getPwaStats() {
         }
     }`;
 
-    const data = await client.fetch(query, {}, {
+    const data = await adminClient.fetch(query, {}, {
         next: { revalidate: 60, tags: ['pwa-stats'] }
     });
 

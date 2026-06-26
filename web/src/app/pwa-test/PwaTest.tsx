@@ -1,8 +1,18 @@
-// src/app/pwa-test/page.tsx (Server Component)
 import { getPwaStats } from "@/sanity/fetchNum";
+import { headers } from "next/headers";
+import { getTenantBySubdomain } from "@/lib/tenant";
+import { createTenantClient } from "@/sanity/client";
 
 export default async function PwaTestPage() {
-    const stats = await getPwaStats();
+    const headersList = await headers();
+    const subdomain = headersList.get("x-tenant-subdomain") || "default";
+    const tenant = await getTenantBySubdomain(subdomain);
+    
+    let stats = null;
+    if (tenant) {
+        const tenantClient = createTenantClient(tenant);
+        stats = await getPwaStats(tenantClient);
+    }
     console.log("PWA Stats:", stats); // Visible in your server terminal
 
     return (

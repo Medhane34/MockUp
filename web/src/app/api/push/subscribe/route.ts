@@ -1,4 +1,4 @@
-import { client } from "@/sanity/client"; // Ensure this client has the WRITE token configured
+import { adminClient } from "@/sanity/client"; // Ensure this client has the WRITE token configured
 import { NextResponse } from "next/server";
 import webpush from "web-push";
 
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
         // 1. Await the operation. Without this, the function exits before Sanity writes the data.
         // 2. Explicitly map fields. 'keys' is often a nested object, 
         //    ensure your Sanity schema has a 'keys' field of type 'object'.
-        const result = await client.create({
+        const result = await adminClient.create({
             _type: 'pushSubscription',
             endpoint: subscription.endpoint,
             keys: subscription.keys,

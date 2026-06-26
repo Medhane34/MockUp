@@ -1,4 +1,5 @@
-import { client } from "@/sanity/client";
+import { createTenantClient } from "@/sanity/client";
+import { getTenantFromHost } from "@/lib/tenant";
 import { NextResponse } from "next/server";
 import webpush from "web-push";
 
@@ -29,8 +30,18 @@ export async function POST(req: Request) {
     }
 
     try {
+        const host = req.headers.get("host");
+        const tenant = await getTenantFromHost(host);
+        if (!tenant) {
+            return NextResponse.json(
+                { error: "Tenant not resolved from host" },
+                { status: 400, headers: corsHeaders }
+            );
+        }
+        const tenantClient = createTenantClient(tenant);
+
         // 2. Fetch the latest notification campaign from Sanity
-        const campaign = await client.fetch(
+        const campaign = await tenantClient.fetch(
             `*[_type == "notificationCampaign"] | order(_createdAt desc)[0]`
         );
 
@@ -42,7 +53,7 @@ export async function POST(req: Request) {
         }
 
         // 3. Fetch all subscribers
-        const subscriptions = await client.fetch(`*[_type == "pushSubscription"]`);
+        const subscriptions = await tenantClient.fetch(`*[_type == "pushSubscription"]`);
 
         // 4. Send notifications
         const payload = JSON.stringify({

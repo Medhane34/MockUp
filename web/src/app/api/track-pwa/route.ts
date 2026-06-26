@@ -1,5 +1,5 @@
 // app/api/track-pwa/route.ts
-import { client } from "@/sanity/client"; // Ensure this client has write access
+import { adminClient } from "@/sanity/client"; // Ensure this client has write access
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -7,7 +7,7 @@ export async function POST(req: Request) {
         const data = await req.json();
 
         // Create the document in Sanity
-        await client.create({
+        await adminClient.create({
             _type: 'pwaInteraction',
             ...data
         });
