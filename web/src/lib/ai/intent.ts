@@ -66,6 +66,11 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
                     faqCategory: z.enum(['Returns', 'Shipping', 'Pricing', 'General']).optional().describe("Strict bucket for FAQs"),
                 }).optional(),
             }),
+            providerOptions: {
+                gateway: {
+                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
+                },
+            },
             system: `You are an expert bilingual (English & Amharic) intent classifier for "${tenant.companyName}", which operates in the ${tenant.niche} niche.
 Your goal is to parse user intents accurately, resolving native variations, spelling variants, and Amharic script (ፊደል).
 

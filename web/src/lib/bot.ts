@@ -134,6 +134,11 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
                 { role: "user" as const, content: prompt },
             ],
             tools,
+            providerOptions: {
+                gateway: {
+                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
+                },
+            },
             maxSteps: 5,
         } as any);
 

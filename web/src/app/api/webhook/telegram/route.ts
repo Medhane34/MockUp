@@ -305,6 +305,11 @@ async function processUpdate(
             system: `${buildSystemPrompt(tenant)}${languageConstraint}`, // Forces runtime language adherence
             prompt,
             tools,
+            providerOptions: {
+                gateway: {
+                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
+                },
+            },
             maxSteps: 5,
         } as any);
         replyText = result.text;
