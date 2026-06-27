@@ -69,6 +69,10 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
             system: `You are an expert bilingual (English & Amharic) intent classifier for "${tenant.companyName}", which operates in the ${tenant.niche} niche.
 Your goal is to parse user intents accurately, resolving native variations, spelling variants, and Amharic script (ፊደል).
 
+CRITICAL LANGUAGE DETECTION RULE:
+- Set language to 'am' if the user writes in Amharic script (ፊደል) OR if they write Amharic words using English letters (Latin transliteration/Hinglish-style for Amharic, e.g., "selam", "sint new", "waga").
+- Set language to 'en' ONLY if the text is actual English sentences/words (e.g., "Hello", "How much is this?").
+
 CRITICAL INTENT RULES:
 - greeting: Initial hellos/greetings in English (hi, hello) or Amharic (ሰላም, እንደምን አለህ).
 - product_browse: General inquiries to see what is available, browse catalogs, menus, packages, or lists.
@@ -86,7 +90,7 @@ CRITICAL INTENT RULES:
             intent: object.intent as IntentType,
             confidence: object.confidence,
             params: object.params,
-            language: "en",
+            language: object.language as 'am' | 'en', // Safely passes down 'am' or 'en'
         };
     } catch (error) {
         console.error(`[Intent][${tenant.companyName}] AI processing failed:`, error);
