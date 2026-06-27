@@ -147,9 +147,19 @@ async function processUpdate(
     const message = update.message ?? update.edited_message;
     const callbackQuery = update.callback_query;
 
-    const chatId: number = message.chat.id;
+    let chatId: number = message.chat.id;
 
-    const telegramId = message.from?.id?.toString() || chatId.toString();
+    let telegramId = message.from?.id?.toString() || chatId.toString();
+
+    if (callbackQuery) {
+        chatId = callbackQuery.message?.chat?.id || 0;
+        telegramId = callbackQuery.from?.id?.toString() || chatId.toString();
+    } else if (message) {
+        chatId = message.chat.id;
+        telegramId = message.from?.id?.toString() || chatId.toString();
+    } else {
+        return;
+    }
 
     // Handle Callback Queries for Qualification
     if (callbackQuery) {
