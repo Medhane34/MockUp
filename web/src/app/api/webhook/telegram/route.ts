@@ -302,7 +302,7 @@ async function processUpdate(
 
         const result = await generateText({
             model: "google/gemini-2.5-flash-lite" as any,
-            system: buildSystemPrompt(tenant) + languageConstraint,
+            system: `${buildSystemPrompt(tenant)}${languageConstraint}`, // Forces runtime language adherence
             prompt,
             tools,
             maxSteps: 5,
