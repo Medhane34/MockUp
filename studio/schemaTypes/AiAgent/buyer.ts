@@ -1,3 +1,5 @@
+// src/schemas/buyer.ts
+
 import { defineType, defineField } from 'sanity';
 
 export default defineType({
@@ -25,6 +27,57 @@ export default defineType({
             type: 'number',
             initialValue: 0,
         }),
+        // New fields for Qualification System
 
+        {
+            name: 'qualificationStage',
+            title: 'Qualification Stage',
+            type: 'string',
+            options: {
+                list: [
+                    { title: 'New', value: 'new' },
+                    { title: 'Intent Captured', value: 'intent' },
+                    { title: 'Needs Identified', value: 'needs' },
+                    { title: 'Qualified', value: 'qualified' },
+                    { title: 'Quoted', value: 'quoted' },
+                    { title: 'Customer', value: 'customer' },
+                    { title: 'Lost', value: 'lost' },
+                ],
+            },
+            initialValue: 'new',
+        },
+        {
+            name: 'intentType',
+            title: 'Detected Intent',
+            type: 'string',
+        },
+        {
+            name: 'coreNeed',
+            title: 'Core Need / Pain Point',
+            type: 'text',
+        },
+        {
+            name: 'budgetRange',
+            title: 'Budget Range (ETB)',
+            type: 'string',
+        },
+        {
+            name: 'timeline',
+            title: 'Purchase Timeline',
+            type: 'string',
+            options: {
+                list: ['Immediate', 'This Week', 'This Month', 'Exploring'],
+            },
+        },
+        {
+            name: 'qualificationNotes',
+            title: 'AI Qualification Notes',
+            type: 'text',
+        },
+        {
+            name: 'lastQualifiedAt',
+            title: 'Last Qualified At',
+            type: 'datetime',
+        },
     ],
 });

@@ -24,6 +24,10 @@ export async function createOrUpdateBuyer(telegramId: string, data: any, tenantC
             status: 'raw',
             totalMessages: 1,
             ...data,
+
+            // Add these lines to set default qualification values
+            leadScore: data.leadScore ?? 0,
+            qualificationStage: data.qualificationStage ?? 'new',
         });
     }
 }
@@ -36,5 +40,16 @@ export async function updateBuyerInteraction(telegramId: string, tenantClient: S
         lastInteraction: new Date().toISOString(),
         totalMessages: (buyer.totalMessages || 0) + 1,
         ...extraData,
+
+        // Add these lines to update qualification values
+        ...(extraData.leadScore !== undefined && { leadScore: extraData.leadScore }),
+        ...(extraData.qualificationStage !== undefined && { qualificationStage: extraData.qualificationStage }),
+        ...(extraData.intentType !== undefined && { intentType: extraData.intentType }),
+        ...(extraData.coreNeed !== undefined && { coreNeed: extraData.coreNeed }),
+        ...(extraData.budgetRange !== undefined && { budgetRange: extraData.budgetRange }),
+        ...(extraData.timeline !== undefined && { timeline: extraData.timeline }),
+        ...(extraData.interests !== undefined && { interests: extraData.interests }),
+        ...(extraData.qualificationNotes !== undefined && { qualificationNotes: extraData.qualificationNotes }),
+        ...(extraData.lastQualifiedAt !== undefined && { lastQualifiedAt: extraData.lastQualifiedAt }),
     }).commit();
 }

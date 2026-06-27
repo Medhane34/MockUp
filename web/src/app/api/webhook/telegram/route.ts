@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { generateText } from "ai";
 import { adminClient, createTenantClient } from "@/sanity/client";
-import { detectIntent } from "@/lib/ai/intent";
+import { detectIntent, IntentResult, IntentType } from "@/lib/ai/intent";
 import {
     buildSystemPrompt,
     buildInfoPrompt,
@@ -16,6 +16,8 @@ import { buildSanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
 import type { TenantContext } from "@/types/tenant";
+import { getNextQualificationQuestion, processQualification } from "@/lib/qualification";
+import { getBuyer } from "@/lib/sanity/buyer";
 
 // Allow up to 60s for AI to respond
 export const maxDuration = 60;
@@ -164,13 +166,45 @@ async function processUpdate(
         intentResult = { intent: "unknown" as const, confidence: 0, params: undefined };
     }
 
-    // 2. Fetch context and build prompt based on intent
+    // === 2. QUALIFICATION FLOW INTEGRATION ===
+    let qualificationData = null;
+    if (
+        intentResult.intent === "qualification" ||
+        intentResult.intent === "product_browse" ||
+        intentResult.intent === "product_detail"
+    ) {
+        console.log(`[Qualification][${tenant.companyName}] Starting structured qualification`);
+
+        qualificationData = await processQualification(
+            telegramId,
+            intentResult,
+            userText,
+            tenantClient,
+            tenant
+        );
+
+        // Get next structured question
+        const nextQuestion = getNextQualificationQuestion(
+            qualificationData.qualificationStage || 'new',
+            qualificationData
+        );
+
+        const replyText = `${nextQuestion}\n\nHow can I assist you further?`;
+
+        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "Markdown");
+
+        console.log(`[Qualification][${tenant.companyName}] Sent structured question to user`);
+        return; // Stop normal AI flow for now
+    }
+
+    // 3. Normal AI Response Flow (for non-qualification intents)
     let sanityContext = "";
     let prompt = "";
+    const intent = intentResult.intent as string;
     const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant };
 
     try {
-        if (intentResult.intent === "product_browse") {
+        if (intent === "product_browse") {
             const products = await getProductList(tenantClient, intentResult.params?.category);
             sanityContext = products.length > 0
                 ? JSON.stringify(products.map((p) => ({
@@ -179,7 +213,7 @@ async function processUpdate(
                 : "No items found in this category.";
             prompt = buildSalesPrompt({ ...ctx, sanityContext });
 
-        } else if (intentResult.intent === "product_detail") {
+        } else if (intent === "product_detail") {
             let product = null;
             if (intentResult.params?.slug) {
                 product = await getProductDetails(tenantClient, intentResult.params.slug);
@@ -193,20 +227,20 @@ async function processUpdate(
                 : "Item not found. Please check the name/spelling.";
             prompt = buildSalesPrompt({ ...ctx, sanityContext });
 
-        } else if (intentResult.intent === "faq") {
+        } else if (intent === "faq") {
             const faqs = await getFAQs(tenantClient, intentResult.params?.faqCategory);
             sanityContext = faqs.length > 0
                 ? JSON.stringify(faqs.map((f) => ({ question: f.question, answer: f.answer, category: f.category })))
                 : "No FAQs found.";
             prompt = buildInfoPrompt({ ...ctx, sanityContext });
 
-        } else if (intentResult.intent === "order") {
+        } else if (intent === "order") {
             prompt = buildSupportPrompt({
                 ...ctx,
                 sanityContext: `Direct user to contact support at ${tenant.supportHandle} to complete their order.`,
             });
 
-        } else if (intentResult.intent === "greeting") {
+        } else if (intent === "greeting") {
             prompt = buildGreetingPrompt(ctx);
 
         } else {
@@ -219,7 +253,6 @@ async function processUpdate(
 
     console.log(`[Bot][${tenant.companyName}] Calling AI...`);
 
-    // 3. Generate AI response via Vercel AI Gateway
     let replyText = "";
     try {
         const tools = buildSanityTools(tenantClient, tenant);
@@ -238,9 +271,8 @@ async function processUpdate(
 
     console.log(`[Bot][${tenant.companyName}] AI responded:`, replyText.slice(0, 100));
 
-    // 4. Send response to Telegram
     try {
-        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "HTML");
+        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "Markdown");
         console.log(`[Bot][${tenant.companyName}] Reply sent to Telegram.`);
     } catch (err: any) {
         console.error(`[Bot][${tenant.companyName}] Failed to send Telegram message:`, err);
