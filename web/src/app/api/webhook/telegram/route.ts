@@ -239,7 +239,8 @@ async function processUpdate(
     let sanityContext = "";
     let prompt = "";
     const intent = intentResult.intent as string;
-    const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant };
+    const userLanguage = intentResult.language;
+    const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant, userLanguage };
 
     try {
         if (intent === "product_browse") {
@@ -294,9 +295,14 @@ async function processUpdate(
     let replyText = "";
     try {
         const tools = buildSanityTools(tenantClient, tenant);
+        const languageConstraint = userLanguage === 'am'
+            ? "\n\nCRITICAL: The user is speaking Amharic. You MUST respond entirely in clear, natural Amharic script (ፊደል). Do not speak English."
+            : "\n\nCRITICAL: The user is speaking English. You MUST respond entirely in clear English.";
+
+
         const result = await generateText({
             model: "google/gemini-2.5-flash-lite" as any,
-            system: buildSystemPrompt(tenant),
+            system: buildSystemPrompt(tenant) + languageConstraint,
             prompt,
             tools,
             maxSteps: 5,

@@ -16,6 +16,7 @@ export type IntentType =
 export interface IntentResult {
     intent: IntentType;
     confidence: number;
+    language: 'am' | 'en'; // Added this line
     params?: {
         category?: string;
         slug?: string;
@@ -31,7 +32,7 @@ function checkInstantTriggers(text: string): IntentResult | null {
     const cleanText = text.toLowerCase().trim();
 
     if (cleanText === "/start" || cleanText === "start") {
-        return { intent: "greeting", confidence: 1.0 };
+        return { intent: "greeting", confidence: 1.0, language: 'en' };
     }
 
     return null;
@@ -58,6 +59,7 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
             schema: z.object({
                 intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
                 confidence: z.number().min(0).max(1),
+                language: z.enum(['am', 'en']).describe("Detected language of the user text. 'am' for Amharic script/transliteration, 'en' for English."),
                 params: z.object({
                     category: z.string().optional().describe("Detected product/service category names"),
                     slug: z.string().optional().describe("Clean URL slug if specific item is requested"),
@@ -84,10 +86,11 @@ CRITICAL INTENT RULES:
             intent: object.intent as IntentType,
             confidence: object.confidence,
             params: object.params,
+            language: "en",
         };
     } catch (error) {
         console.error(`[Intent][${tenant.companyName}] AI processing failed:`, error);
         // Resilient fallback structure ensuring app stays up even if API times out
-        return { intent: "unknown", confidence: 0.0 };
+        return { intent: "unknown", confidence: 0.0, language: 'en' };
     }
 }
