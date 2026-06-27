@@ -204,36 +204,36 @@ async function processUpdate(
         intentResult = { intent: "unknown" as const, confidence: 0, params: undefined };
     }
 
-    // === 2. QUALIFICATION FLOW INTEGRATION ===
-    let qualificationData = null;
-    if (
-        intentResult.intent === "qualification" ||
-        intentResult.intent === "product_browse" ||
-        intentResult.intent === "product_detail"
-    ) {
-        console.log(`[Qualification][${tenant.companyName}] Starting structured qualification`);
-
-        const qualificationData = await processQualification(
-            telegramId,
-            intentResult,
-            userText,
-            tenantClient,
-            tenant
-        );
-
-        const keyboard = getQualificationKeyboard(qualificationData.qualificationStage || 'new');
-
-        await sendFormattedMessage(
-            tenant.telegramBotToken,
-            chatId,
-            keyboard.text,
-            "Markdown",
-            keyboard.replyMarkup
-        );
-
-        console.log(`[Qualification][${tenant.companyName}] Sent structured question to user`);
-        return; // Stop normal AI flow
-    }
+    /*   // === 2. QUALIFICATION FLOW INTEGRATION ===
+      let qualificationData = null;
+      if (
+          intentResult.intent === "qualification" ||
+          intentResult.intent === "product_browse" ||
+          intentResult.intent === "product_detail"
+      ) {
+          console.log(`[Qualification][${tenant.companyName}] Starting structured qualification`);
+  
+          const qualificationData = await processQualification(
+              telegramId,
+              intentResult,
+              userText,
+              tenantClient,
+              tenant
+          );
+  
+          const keyboard = getQualificationKeyboard(qualificationData.qualificationStage || 'new');
+  
+          await sendFormattedMessage(
+              tenant.telegramBotToken,
+              chatId,
+              keyboard.text,
+              "Markdown",
+              keyboard.replyMarkup
+          );
+  
+          console.log(`[Qualification][${tenant.companyName}] Sent structured question to user`);
+          return; // Stop normal AI flow
+      } */
 
     // 3. Normal AI Response Flow (for non-qualification intents)
     let sanityContext = "";
