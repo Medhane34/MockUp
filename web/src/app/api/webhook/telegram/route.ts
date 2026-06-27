@@ -147,9 +147,8 @@ async function processUpdate(
     const message = update.message ?? update.edited_message;
     const callbackQuery = update.callback_query;
 
-    let chatId: number = message.chat.id;
-
-    let telegramId = message.from?.id?.toString() || chatId.toString();
+    let chatId: number;
+    let telegramId: string;
 
     if (callbackQuery) {
         chatId = callbackQuery.message?.chat?.id || 0;
@@ -160,7 +159,6 @@ async function processUpdate(
     } else {
         return;
     }
-
     // Handle Callback Queries for Qualification
     if (callbackQuery) {
         const cbData = callbackQuery.data || "";
