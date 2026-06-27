@@ -57,22 +57,44 @@ export async function processQualification(
 /**
  * Structured Question Flow (Next Message Suggestions)
  */
-export function getNextQualificationQuestion(stage: string, data: QualificationData) {
-    if (stage === 'new' || !data.intentType) {
-        return "What are you looking for today?";
+export function getQualificationKeyboard(stage: string) {
+    if (stage === 'needs' || stage === 'new') {
+        return {
+            text: "What are you looking for today?",
+            replyMarkup: {
+                inline_keyboard: [
+                    [{ text: "Electronics", callback_data: "interest_electronics" }],
+                    [{ text: "Fashion", callback_data: "interest_fashion" }],
+                    [{ text: "Home & Kitchen", callback_data: "interest_home" }],
+                    [{ text: "Beauty", callback_data: "interest_beauty" }],
+                    [{ text: "Agriculture", callback_data: "interest_agriculture" }],
+                ]
+            }
+        };
     }
 
-    if (!data.coreNeed) {
-        return "Can you tell me more about what you need?";
+    if (stage === 'budget') {
+        return {
+            text: "What's your approximate budget range?",
+            replyMarkup: {
+                inline_keyboard: [
+                    [{ text: "< 5,000 ETB", callback_data: "budget_low" }],
+                    [{ text: "5,000 - 20,000 ETB", callback_data: "budget_medium" }],
+                    [{ text: "> 20,000 ETB", callback_data: "budget_high" }],
+                ]
+            }
+        };
     }
 
-    if (!data.budgetRange) {
-        return "What's your approximate budget range?";
-    }
-
-    if (!data.timeline) {
-        return "When do you need this by?";
-    }
-
-    return "Would you like a personalized recommendation?";
+    return {
+        text: "When do you need this by?",
+        replyMarkup: {
+            inline_keyboard: [
+                [{ text: "Immediate", callback_data: "timeline_immediate" }],
+                [{ text: "This Week", callback_data: "timeline_week" }],
+                [{ text: "This Month", callback_data: "timeline_month" }],
+                [{ text: "Exploring", callback_data: "timeline_exploring" }],
+            ]
+        }
+    };
 }

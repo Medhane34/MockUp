@@ -16,8 +16,8 @@ import { buildSanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
 import type { TenantContext } from "@/types/tenant";
-import { getNextQualificationQuestion, processQualification } from "@/lib/qualification";
-import { getBuyer } from "@/lib/sanity/buyer";
+import { getQualificationKeyboard, processQualification } from "@/lib/qualification";
+import { createOrUpdateBuyer, getBuyer } from "@/lib/sanity/buyer";
 
 // Allow up to 60s for AI to respond
 export const maxDuration = 60;
@@ -145,14 +145,44 @@ async function processUpdate(
     tenantClient: ReturnType<typeof createTenantClient>
 ): Promise<void> {
     const message = update.message ?? update.edited_message;
+    const callbackQuery = update.callback_query;
+
+    const chatId: number = message.chat.id;
+
+    const telegramId = message.from?.id?.toString() || chatId.toString();
+
+    // Handle Callback Queries for Qualification
+    if (callbackQuery) {
+        const cbData = callbackQuery.data || "";
+
+        if (cbData.startsWith("interest_") || cbData.startsWith("budget_") || cbData.startsWith("timeline_")) {
+            console.log(`[Qualification Callback][${tenant.companyName}] Received: ${cbData}`);
+
+            const key = cbData.split("_")[0];
+            const value = cbData.split("_")[1];
+
+            await createOrUpdateBuyer(telegramId, {
+                interests: key === "interest" ? [value] : undefined,
+                budgetRange: key === "budget" ? value : undefined,
+                timeline: key === "timeline" ? value : undefined,
+                lastQualifiedAt: new Date().toISOString(),
+            }, tenantClient);
+
+            await sendFormattedMessage(
+                tenant.telegramBotToken,
+                chatId,
+                "Thank you! Got it. 🎉\n\nAnything else I can help with?",
+                "Markdown"
+            );
+            return;
+        }
+    }
+
     if (!message?.text) {
         console.log(`[Bot][${tenant.companyName}] No text in update, skipping AI flow.`);
         return;
     }
-
-    const chatId: number = message.chat.id;
     const userText: string = message.text;
-    const telegramId = message.from?.id?.toString() || chatId.toString();
     const userName: string = message.from?.username ?? message.from?.first_name ?? "user";
 
     console.log(`[Bot][${tenant.companyName}] Message from ${userName}: "${userText}"`);
@@ -175,7 +205,7 @@ async function processUpdate(
     ) {
         console.log(`[Qualification][${tenant.companyName}] Starting structured qualification`);
 
-        qualificationData = await processQualification(
+        const qualificationData = await processQualification(
             telegramId,
             intentResult,
             userText,
@@ -183,18 +213,18 @@ async function processUpdate(
             tenant
         );
 
-        // Get next structured question
-        const nextQuestion = getNextQualificationQuestion(
-            qualificationData.qualificationStage || 'new',
-            qualificationData
+        const keyboard = getQualificationKeyboard(qualificationData.qualificationStage || 'new');
+
+        await sendFormattedMessage(
+            tenant.telegramBotToken,
+            chatId,
+            keyboard.text,
+            "Markdown",
+            keyboard.replyMarkup
         );
 
-        const replyText = `${nextQuestion}\n\nHow can I assist you further?`;
-
-        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "Markdown");
-
         console.log(`[Qualification][${tenant.companyName}] Sent structured question to user`);
-        return; // Stop normal AI flow for now
+        return; // Stop normal AI flow
     }
 
     // 3. Normal AI Response Flow (for non-qualification intents)
