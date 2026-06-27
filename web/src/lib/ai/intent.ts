@@ -1,4 +1,5 @@
 // src/lib/ai/intent.ts
+import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
@@ -23,86 +24,70 @@ export interface IntentResult {
 }
 
 /**
- * Fast keyword-based intent detection (zero cost, high speed)
+ * Super-fast checks for strictly identical core system triggers
+ * Handled locally to keep the gateway clear of simple utility hits
  */
-function detectIntentByKeywords(text: string): IntentResult | null {
-    const t = text.toLowerCase().trim();
+function checkInstantTriggers(text: string): IntentResult | null {
+    const cleanText = text.toLowerCase().trim();
 
-    if (/^(hi|hello|hey|start|greetings|yo|howdy|salam)$/i.test(t) || t === "/start") {
+    if (cleanText === "/start" || cleanText === "start") {
         return { intent: "greeting", confidence: 1.0 };
-    }
-
-    if (/\b(return|refund|exchange|shipping|delivery|ship|post|courier|payment|pay|price|cost|how much|fee|faq|question|help|support)\b/i.test(t)) {
-        let faqCategory = "General";
-        if (/\b(return|refund|exchange)\b/i.test(t)) faqCategory = "Returns";
-        else if (/\b(shipping|delivery|ship|post|courier)\b/i.test(t)) faqCategory = "Shipping";
-        else if (/\b(payment|pay|price|cost|how much|fee)\b/i.test(t)) faqCategory = "Pricing";
-
-        return { intent: "faq", confidence: 0.9, params: { faqCategory } };
-    }
-
-    if (/\b(order|checkout|buy|purchase|cart|book|booking|reserve|quote)\b/i.test(t)) {
-        return { intent: "order", confidence: 0.85 };
-    }
-
-    if (/\b(products?|items?|catalog|shop|browse|list|store|categories|category|services?|packages?|tours?)\b/i.test(t)) {
-        return { intent: "product_browse", confidence: 0.8 };
-    }
-
-    // New: Qualification intent
-    if (/\b(need|want|looking for|interested in|recommend|best|help me choose| price range)\b/i.test(t)) {
-        return { intent: "qualification", confidence: 0.75 };
     }
 
     return null;
 }
 
 /**
- * Enhanced Intent Detection with Tenant Context
+ * Enhanced Intent Detection with Tenant Context and Bilingual AI Processing
  */
 export async function detectIntent(text: string, tenant: TenantContext): Promise<IntentResult> {
-    const keywordResult = detectIntentByKeywords(text);
-    if (keywordResult) {
-        console.log(`[Intent][${tenant.companyName}] Keyword match: ${keywordResult.intent}`);
-        return keywordResult;
+    // 1. Instant trigger check for baseline platform actions
+    const structuralTrigger = checkInstantTriggers(text);
+    if (structuralTrigger) {
+        console.log(`[Intent][${tenant.companyName}] Trigger match: ${structuralTrigger.intent}`);
+        return structuralTrigger;
     }
 
-    console.log(`[Intent][${tenant.companyName}] No keyword match. Falling back to AI...`);
+    console.log(`[Intent][${tenant.companyName}] Routing message to Gemini AI Router...`);
 
     try {
         const { object } = await generateObject({
-            model: "google/gemini-2.5-flash-lite" as any,
+            // Explicitly typed using Vercel AI SDK Google provider (Fixes 'as any')
+            // Using gemini-2.5-flash-lite as requested (perfect for routing sub-tasks)
+            model: google("gemini-2.5-flash-lite"),
             schema: z.object({
                 intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
                 confidence: z.number().min(0).max(1),
                 params: z.object({
-                    category: z.string().optional(),
-                    slug: z.string().optional(),
-                    faqCategory: z.string().optional(),
+                    category: z.string().optional().describe("Detected product/service category names"),
+                    slug: z.string().optional().describe("Clean URL slug if specific item is requested"),
+                    faqCategory: z.enum(['Returns', 'Shipping', 'Pricing', 'General']).optional().describe("Strict bucket for FAQs"),
                 }).optional(),
             }),
-            prompt: `You are an AI intent classifier for "${tenant.companyName}", a ${tenant.niche} business.
+            system: `You are an expert bilingual (English & Amharic) intent classifier for "${tenant.companyName}", which operates in the ${tenant.niche} niche.
+Your goal is to parse user intents accurately, resolving native variations, spelling variants, and Amharic script (ፊደል).
 
-User message: "${text}"
-
-Classify into exactly one intent:
-- greeting: Simple greeting or /start
-- product_browse: Wants to see products/services
-- product_detail: Asking about a specific item
-- faq: Questions about shipping, returns, payments, etc.
-- order: Ready to buy, book, or get quote
-- qualification: Expressing need or seeking recommendation
-- unknown: Unclear message`,
+CRITICAL INTENT RULES:
+- greeting: Initial hellos/greetings in English (hi, hello) or Amharic (ሰላም, እንደምን አለህ).
+- product_browse: General inquiries to see what is available, browse catalogs, menus, packages, or lists.
+- product_detail: Deep dive query or technical questions about one specific item or item slug.
+- faq: Operational procedural questions. Map 'faqCategory' field strictly to 'Returns', 'Shipping', 'Pricing', or 'General'.
+- order: Actions showing they are immediately moving to transaction state (buy, book, pay, checkout, ሂሳብ ክፈል).
+- qualification: Early exploration phase. They are stating their problems, needs, or asking you to make a choice/recommendation for them.
+- unknown: Completely irrelevant text, garbage strings, or unparseable context.`,
+            prompt: `User Message to evaluate: "${text}"`,
         });
 
         console.log(`[Intent][${tenant.companyName}] AI classified: ${object.intent} (${object.confidence})`);
+
         return {
             intent: object.intent as IntentType,
             confidence: object.confidence,
             params: object.params,
         };
     } catch (error) {
-        console.error(`[Intent][${tenant.companyName}] AI failed:`, error);
+        console.error(`[Intent][${tenant.companyName}] AI processing failed:`, error);
+        // Resilient fallback structure ensuring app stays up even if API times out
         return { intent: "unknown", confidence: 0.0 };
     }
 }
