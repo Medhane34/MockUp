@@ -50,7 +50,7 @@ function detectIntentByKeywords(text: string): IntentResult | null {
     }
 
     // New: Qualification intent
-    if (/\b(need|want|looking for|interested in|recommend|best|help me choose)\b/i.test(t)) {
+    if (/\b(need|want|looking for|interested in|recommend|best|help me choose| price range)\b/i.test(t)) {
         return { intent: "qualification", confidence: 0.75 };
     }
 
