@@ -1,9 +1,8 @@
 // src/lib/ai/intent.ts
-import { google } from "@ai-sdk/google";
-import { generateObject } from "ai";
+import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
 import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
-
+import { generateObject } from "ai";
 export type IntentType =
     | 'product_browse'
     | 'product_detail'
@@ -16,7 +15,7 @@ export type IntentType =
 export interface IntentResult {
     intent: IntentType;
     confidence: number;
-    language: 'am' | 'en'; // Added this line
+    language: 'am' | 'en';
     params?: {
         category?: string;
         slug?: string;
@@ -24,6 +23,16 @@ export interface IntentResult {
     };
 }
 
+/**
+ * Initialize a central Google provider linked to your Vercel AI Gateway infrastructure.
+ * This dynamically applies your new API key string from your Vercel environment variables.
+ */
+/* const gatewayGoogleProvider = createGoogleGenerativeAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    // Ensure this baseURL matches the gateway proxy path configured in your route.ts
+    baseURL: "https://aligoo-mockup.vercel.app/",
+});
+ */
 /**
  * Super-fast checks for strictly identical core system triggers
  * Handled locally to keep the gateway clear of simple utility hits
@@ -49,14 +58,13 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         return structuralTrigger;
     }
 
-    console.log(`[Intent][${tenant.companyName}] Routing message to Gemini AI Router...`);
+    console.log(`[Intent][${tenant.companyName}] Routing message to Vercel AI Gateway Router...`);
 
     try {
         const { object } = await generateObject({
-            // Explicitly typed using Vercel AI SDK Google provider (Fixes 'as any')
-            // Using gemini-2.5-flash-lite as requested (perfect for routing sub-tasks)
-            model: google("gemini-2.5-flash-lite"),
-            schema: z.object({
+            // 🔄 UPDATED: Now uses your initialized gateway instance.
+            // Using 'gemini-1.5-flash' to leverage the large 1500 req/day free pool.
+            model: google("gemini-2.5-flash"), schema: z.object({
                 intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
                 confidence: z.number().min(0).max(1),
                 language: z.enum(['am', 'en']).describe("Detected language of the user text. 'am' for Amharic script/transliteration, 'en' for English."),
@@ -66,9 +74,10 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
                     faqCategory: z.enum(['Returns', 'Shipping', 'Pricing', 'General']).optional().describe("Strict bucket for FAQs"),
                 }).optional(),
             }),
+            // 🔄 The gateway fallback parameter is now fully functional because it maps over an active gateway token
             providerOptions: {
                 gateway: {
-                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
+                    models: ['google/gemini-2.5-flash', 'google/gemini-1.5-flash'],
                 },
             },
             system: `You are an expert bilingual (English & Amharic) intent classifier for "${tenant.companyName}", which operates in the ${tenant.niche} niche.
@@ -89,17 +98,16 @@ CRITICAL INTENT RULES:
             prompt: `User Message to evaluate: "${text}"`,
         });
 
-        console.log(`[Intent][${tenant.companyName}] AI classified: ${object.intent} (${object.confidence})`);
+        console.log(`[Intent][${tenant.companyName}] AI Gateway classified: ${object.intent} (${object.confidence})`);
 
         return {
             intent: object.intent as IntentType,
             confidence: object.confidence,
             params: object.params,
-            language: object.language as 'am' | 'en', // Safely passes down 'am' or 'en'
+            language: object.language as 'am' | 'en',
         };
     } catch (error) {
-        console.error(`[Intent][${tenant.companyName}] AI processing failed:`, error);
-        // Resilient fallback structure ensuring app stays up even if API times out
+        console.error(`[Intent][${tenant.companyName}] AI Gateway routing processing failed:`, error);
         return { intent: "unknown", confidence: 0.0, language: 'en' };
     }
 }

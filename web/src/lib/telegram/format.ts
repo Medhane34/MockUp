@@ -109,12 +109,20 @@ export async function sendFormattedMessage(
     throw new Error("sendFormattedMessage: botToken is required for multi-tenant message sending");
   }
 
-  const telegramApi = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  // 🔄 CRITICAL FIX 1: Clean the token string of hidden spaces, tabs, or newlines
+  let cleanToken = botToken.trim().replace(/[\n\r\t]/g, "");
 
-  // Clean up and convert incoming markdown text structure if requested
+  // 🔄 CRITICAL FIX 2: Prevent "botbot" URL duplication anomalies
+  if (cleanToken.toLowerCase().startsWith("bot")) {
+    cleanToken = cleanToken.substring(3); // Strips 'bot' if it was accidentally prefixed in Sanity
+  }
+
+  // Build the clean, bulletproof URL string
+
+  const telegramApi = `https://api.telegram.org/bot${cleanToken}/sendMessage`;
+  // Process markdown into HTML if parseMode is HTML
   const processedText = parseMode === "HTML" ? markdownToHtml(text) : text;
 
-  // Initialize the transmission payload
   const body: any = {
     chat_id: chatId,
     text: processedText,
@@ -124,12 +132,14 @@ export async function sendFormattedMessage(
     body.parse_mode = parseMode;
   }
 
-  // Telegram expects reply_markup to be a JSON string object representation if present
   if (replyMarkup) {
     body.reply_markup = typeof replyMarkup === "object" ? JSON.stringify(replyMarkup) : replyMarkup;
   }
 
-  const res = await fetch(`${telegramApi}/sendMessage`, {
+  // 🔄 CRITICAL FIX 3: Diagnostic URL verification logger
+  console.log(`[Telegram Transport Request] Posting payload to computed endpoint: https://telegram.org{cleanToken.slice(0,6)}...***:${cleanToken.slice(-4)}/sendMessage`);
+
+  const res = await fetch(telegramApi, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -138,30 +148,21 @@ export async function sendFormattedMessage(
   if (!res.ok) {
     const err = await res.text();
 
-    // Fallback block to rescue failing markdown or HTML structure breaks safely
     if ((parseMode === "Markdown" || parseMode === "HTML") && res.status === 400) {
-      console.warn(`[Telegram] ${parseMode} parsing failed, retrying with plain text safely...`);
-
-      const fallbackBody: any = {
-        chat_id: chatId,
-        text: text // Reverts to the raw string completely bypassing parser entities
-      };
-
-      // Ensure the markup parameter stays formatted correctly on retry execution
+      console.warn(`[Telegram] ${parseMode} parsing failed, retrying with plain text...`);
+      const fallbackBody: any = { chat_id: chatId, text: text };
       if (replyMarkup) {
         fallbackBody.reply_markup = typeof replyMarkup === "object" ? JSON.stringify(replyMarkup) : replyMarkup;
       }
 
-      const fallbackRes = await fetch(`${telegramApi}/sendMessage`, {
+      const fallbackRes = await fetch(telegramApi, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fallbackBody),
       });
-
       if (fallbackRes.ok) return;
 
       const fallbackErr = await fallbackRes.text();
-      console.error("[Telegram] Fallback sendMessage also failed:", fallbackErr);
       throw new Error(`Telegram sendMessage fallback failed: ${fallbackErr} (Original error: ${err})`);
     }
     throw new Error(`Telegram sendMessage failed: ${err}`);
