@@ -259,9 +259,17 @@ async function processUpdate(
         const tools = buildSanityTools(tenantClient, tenant);
 
         // Sharpen the instructions to force Gemini to translate data queries into target script
+        // src/app/api/webhook/telegram/route.ts
+
         const languageConstraint = userLanguage === 'am'
-            ? "\n\nCRITICAL BILINGUAL POLICY: The user is speaking Amharic. You must evaluate the user request, pull facts from tools if required, and provide your final response completely in clear, natural Amharic script (ፊደል). Do not output raw JSON, functional compiler code tokens, or English sentences."
-            : "\n\nCRITICAL BILINGUAL POLICY: The user is speaking English. Respond entirely in clear, friendly English.";
+            ? `\n\nCRITICAL BILINGUAL AND TOOL-EXECUTION POLICY:
+- The user is interacting with you in Amharic. 
+- You MUST provide your final response to the user entirely in clean, beautiful, natural Amharic script (ፊደል).
+- When you execute catalog tools, you will receive product data (names, prices, descriptions) written in English from the database. 
+- This is expected. Do not return empty text or raw JSON. 
+- You must translate or transliterate the English product information into Amharic text dynamically for the user (e.g., if the tool returns product name: "Coffee Machine", write it as "የቡና ማሽን" or "ኮፊ ማሽን" in your final Amharic text list).
+- Keep the numerical currency price accurate and append 'ETB' or 'ብር'.`
+            : "\n\nCRITICAL LANGUAGE POLICY: The user is speaking English. Respond entirely in clear, friendly English.";
 
         const result = await generateText({
             /*  // 🔄 WRAPPED WITH FALLBACK: Protects your account from 429 quota exhaustion 
