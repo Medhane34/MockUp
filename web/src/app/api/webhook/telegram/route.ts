@@ -385,13 +385,18 @@ async function checkOnboardingComplete(
 ): Promise<boolean> {
     try {
         const { getBuyer } = await import("@/lib/sanity/buyer");
-        const buyer = await getBuyer(telegramId, tenantClient);
+        const buyerResult = await getBuyer(telegramId, tenantClient);
+
+        // 🔄 FIX: Read the first item from the array safely
+        const buyer = Array.isArray(buyerResult) ? buyerResult[0] : buyerResult;
+
         return !!(buyer && buyer.onboardingStep === "completed");
     } catch (e) {
         console.error("[Onboarding] Check failed:", e);
         return false;
     }
 }
+
 
 async function handleOnboardingUpdate(
     update: any,
