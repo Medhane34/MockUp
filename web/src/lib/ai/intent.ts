@@ -1,5 +1,4 @@
 // src/lib/ai/intent.ts
-import { createGoogleGenerativeAI } from "@ai-sdk/google"; // 🔄 Changed from direct 'google' import
 import { generateObject } from "ai";
 import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
@@ -28,12 +27,12 @@ export interface IntentResult {
  * Initialize a central Google provider linked to your Vercel AI Gateway infrastructure.
  * This dynamically applies your new API key string from your Vercel environment variables.
  */
-const gatewayGoogleProvider = createGoogleGenerativeAI({
+/* const gatewayGoogleProvider = createGoogleGenerativeAI({
     apiKey: process.env.GEMINI_API_KEY,
     // Ensure this baseURL matches the gateway proxy path configured in your route.ts
     baseURL: "https://aligoo-mockup.vercel.app/",
 });
-
+ */
 /**
  * Super-fast checks for strictly identical core system triggers
  * Handled locally to keep the gateway clear of simple utility hits
@@ -65,7 +64,7 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         const { object } = await generateObject({
             // 🔄 UPDATED: Now uses your initialized gateway instance.
             // Using 'gemini-1.5-flash' to leverage the large 1500 req/day free pool.
-            model: gatewayGoogleProvider("gemini-1.5-flash"),
+            model: "google/gemini-2.5-flash" as any,
             schema: z.object({
                 intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
                 confidence: z.number().min(0).max(1),
