@@ -320,12 +320,17 @@ async function processUpdate(
 
     console.log(`[Bot][${tenant.companyName}] AI responded:`, replyText.slice(0, 100));
 
+    // 🛠 Add this clean logging line directly above your try-catch block:
+    console.log(`[Diagnostic][${tenant.companyName}] Token Check: "${tenant.telegramBotToken ? 'EXISTS' : 'EMPTY'}" | Length: ${tenant.telegramBotToken?.length || 0} | ChatId: ${chatId}`);
+
     try {
-        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "Markdown");
+        // Force "HTML" instead of "Markdown" to match your refactored format.ts utility
+        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "HTML");
         console.log(`[Bot][${tenant.companyName}] Reply sent to Telegram.`);
     } catch (err: any) {
         console.error(`[Bot][${tenant.companyName}] Failed to send Telegram message:`, err);
     }
+
 }
 
 // ─── Onboarding Helpers ───────────────────────────────────────────────────────
