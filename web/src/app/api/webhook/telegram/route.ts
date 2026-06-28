@@ -409,15 +409,14 @@ async function handleOnboardingUpdate(
         const { handleOnboarding } = await import("@/lib/onboarding");
         const { getBuyer } = await import("@/lib/sanity/buyer");
 
-        // 1. Fetch the raw query response array from your database
         const buyerResult = await getBuyer(telegramId, tenantClient);
-
-        // 2. 🔄 CRITICAL FIX: Extract the first element safely if it exists, matching onboarding's expectations
         const buyer = Array.isArray(buyerResult) ? buyerResult[0] : buyerResult;
 
-        const result = await handleOnboarding(null, update, buyer, telegramId, tenant, tenantClient);
+        // Execute the onboarding logic block
+        const result = await handleOnboarding(null, update, buyer, telegramId, tenant, tenantClient) as any;
 
         if (result.handled && result.response) {
+            // Step A: Send the primary message (e.g., closing the native button drawer)
             await sendFormattedMessage(
                 tenant.telegramBotToken,
                 chatId,
@@ -425,6 +424,20 @@ async function handleOnboardingUpdate(
                 "HTML",
                 result.response.replyMarkup ?? null
             );
+
+            // Step B: If a sequential follow-up message exists, dispatch it immediately after
+            if (result.nextResponse) {
+                // Short 100ms timeout prevents network packet collisions over the Vercel gateway
+                await new Promise((resolve) => setTimeout(resolve, 100));
+
+                await sendFormattedMessage(
+                    tenant.telegramBotToken,
+                    chatId,
+                    result.nextResponse.text,
+                    "HTML",
+                    result.nextResponse.replyMarkup ?? null
+                );
+            }
         }
     } catch (e) {
         console.error(`[Onboarding Handler][${tenant.companyName}] Failed:`, e);
@@ -432,7 +445,7 @@ async function handleOnboardingUpdate(
             tenant.telegramBotToken,
             chatId,
             `Welcome to ${tenant.companyName}! Type /start to begin.`,
-            "HTML" // Standardized to HTML
+            "HTML"
         );
     }
 }

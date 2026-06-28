@@ -129,29 +129,34 @@ export async function handleOnboarding(
     }
 
     // ─── STEP 3: Phone Number (Contact Share Catching Step) ─────────────────────
+    // ─── STEP 3: Phone Number (Contact Share Catching Step) ─────────────────────
     if (msg?.contact && existingBuyer?.onboardingStep === "phone") {
         await createOrUpdateBuyer(telegramId, {
             phone: msg.contact.phone_number,
             onboardingStep: "language",
         }, tenantClient);
 
+        // 🔄 THE SEPARATION FIX: We split the operations into an array of two distinct responses.
+        // The router block will process and send these in sequential order.
         return {
             handled: true,
             response: {
-                text: "Thank you! What's your preferred language?",
-                // 🔄 CRITICAL FIXED OBJECT: In Telegram, you cannot mix inline_keyboard and remove_keyboard 
-                // inside a single parameter field. Passing replyMarkup directly requires formatting it 
-                // in the payload handler within format.ts during execution.
+                text: "Saving phone number... 📱",
+                // 1. First payload focuses strictly on closing the native keyboard drawer safely
+                replyMarkup: { remove_keyboard: true }
+            },
+            // We append a custom field payload array here so route.ts knows there is a follow-up step
+            nextResponse: {
+                text: "Thank you! What's your preferred language? / እናመሰግናለን! የሚመርጡትን ቋንቋ ይምረጡ፦",
+                // 2. Second payload focuses strictly on rendering your inline buttons cleanly
                 replyMarkup: {
                     inline_keyboard: [
-                        [{ text: "🇪🇹 Amharic", callback_data: "lang_am" }],
+                        [{ text: "🇪🇹 Amharic (አማርኛ)", callback_data: "lang_am" }],
                         [{ text: "🇬🇧 English", callback_data: "lang_en" }],
-                    ],
-                    // We attach this flag so our router's transport block strips the native button drawer
-                    remove_keyboard: true
-                },
-            },
-        };
+                    ]
+                }
+            }
+        } as any;
     }
 
     return { handled: false, buyer: existingBuyer };
