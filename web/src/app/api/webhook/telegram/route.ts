@@ -18,6 +18,7 @@ import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries
 import type { TenantContext } from "@/types/tenant";
 import { getQualificationKeyboard, processQualification } from "@/lib/qualification";
 import { createOrUpdateBuyer, getBuyer } from "@/lib/sanity/buyer";
+import { any } from "zod";
 
 // Allow up to 60s for AI to respond
 export const maxDuration = 60;
@@ -159,6 +160,13 @@ async function processUpdate(
     } else {
         return;
     }
+
+    // Immediate Token Validation Guard
+    if (!tenant.telegramBotToken || tenant.telegramBotToken.trim() === "") {
+        console.error(`[Webhook][${tenant.companyName}] Terminating request early: Missing bot token configuration.`);
+        return;
+    }
+
     // Handle Callback Queries for Qualification
     if (callbackQuery) {
         const cbData = callbackQuery.data || "";
@@ -180,7 +188,7 @@ async function processUpdate(
                 tenant.telegramBotToken,
                 chatId,
                 "Thank you! Got it. 🎉\n\nAnything else I can help with?",
-                "Markdown"
+                "HTML" // Swapped to HTML for unified parsing engine stability
             );
             return;
         }
@@ -195,112 +203,72 @@ async function processUpdate(
 
     console.log(`[Bot][${tenant.companyName}] Message from ${userName}: "${userText}"`);
 
-    // 1. Intent Detection (niche-aware)
+    // 1. Intent & Language Detection
     let intentResult;
     try {
         intentResult = await detectIntent(userText, tenant);
     } catch (err) {
         console.error(`[Bot][${tenant.companyName}] Intent detection error:`, err);
-        intentResult = { intent: "unknown" as const, confidence: 0, params: undefined };
+        intentResult = { intent: "unknown" as const, confidence: 0, language: 'en' as const, params: undefined };
     }
 
-    /*   // === 2. QUALIFICATION FLOW INTEGRATION ===
-      let qualificationData = null;
-      if (
-          intentResult.intent === "qualification" ||
-          intentResult.intent === "product_browse" ||
-          intentResult.intent === "product_detail"
-      ) {
-          console.log(`[Qualification][${tenant.companyName}] Starting structured qualification`);
-  
-          const qualificationData = await processQualification(
-              telegramId,
-              intentResult,
-              userText,
-              tenantClient,
-              tenant
-          );
-  
-          const keyboard = getQualificationKeyboard(qualificationData.qualificationStage || 'new');
-  
-          await sendFormattedMessage(
-              tenant.telegramBotToken,
-              chatId,
-              keyboard.text,
-              "Markdown",
-              keyboard.replyMarkup
-          );
-  
-          console.log(`[Qualification][${tenant.companyName}] Sent structured question to user`);
-          return; // Stop normal AI flow
-      } */
+    const intent = intentResult.intent as string;
+    const userLanguage = intentResult.language || 'en';
+    const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant, userLanguage };
 
-    // 3. Normal AI Response Flow (for non-qualification intents)
+    // 2. Pre-Populate Static Context Rules for Baseline Prompt Fallbacks
     let sanityContext = "";
     let prompt = "";
-    const intent = intentResult.intent as string;
-    const userLanguage = intentResult.language;
-    const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant, userLanguage };
 
     try {
         if (intent === "product_browse") {
             const products = await getProductList(tenantClient, intentResult.params?.category);
-            sanityContext = products.length > 0
-                ? JSON.stringify(products.map((p) => ({
-                    name: p.name, slug: p.slug, price: p.price, inStock: p.inStock, category: p.category,
-                })))
-                : "No items found in this category.";
+            sanityContext = products.length > 0 ? JSON.stringify(products) : "No items found in this category.";
             prompt = buildSalesPrompt({ ...ctx, sanityContext });
-
         } else if (intent === "product_detail") {
             let product = null;
             if (intentResult.params?.slug) {
                 product = await getProductDetails(tenantClient, intentResult.params.slug);
             }
-            sanityContext = product
-                ? JSON.stringify({
-                    name: product.name, slug: product.slug, price: product.price,
-                    inStock: product.inStock, stockQuantity: product.stockQuantity,
-                    description: product.description, features: product.features,
-                })
-                : "Item not found. Please check the name/spelling.";
+            sanityContext = product ? JSON.stringify(product) : "Item not found. Please check spelling.";
             prompt = buildSalesPrompt({ ...ctx, sanityContext });
-
         } else if (intent === "faq") {
             const faqs = await getFAQs(tenantClient, intentResult.params?.faqCategory);
-            sanityContext = faqs.length > 0
-                ? JSON.stringify(faqs.map((f) => ({ question: f.question, answer: f.answer, category: f.category })))
-                : "No FAQs found.";
+            sanityContext = faqs.length > 0 ? JSON.stringify(faqs) : "No FAQs found.";
             prompt = buildInfoPrompt({ ...ctx, sanityContext });
-
         } else if (intent === "order") {
             prompt = buildSupportPrompt({
                 ...ctx,
                 sanityContext: `Direct user to contact support at ${tenant.supportHandle} to complete their order.`,
             });
-
         } else if (intent === "greeting") {
             prompt = buildGreetingPrompt(ctx);
-
         } else {
             prompt = buildFallbackPrompt(ctx);
         }
     } catch (err: any) {
-        console.error(`[Bot][${tenant.companyName}] Context retrieval failed:`, err);
-        prompt = buildFallbackPrompt({ ...ctx, sanityContext: "Error retrieving catalog data." });
+        console.error(`[Bot][${tenant.companyName}] Static context retrieval failed:`, err);
+        prompt = buildFallbackPrompt({ ...ctx, sanityContext: "Error retrieving database context catalog data." });
     }
 
-    console.log(`[Bot][${tenant.companyName}] Calling AI...`);
+    console.log(`[Bot][${tenant.companyName}] Calling Resilient AI Engine with language: [${userLanguage}]...`);
 
     let replyText = "";
     try {
         const tools = buildSanityTools(tenantClient, tenant);
-        const languageConstraint = userLanguage === 'am'
-            ? "\n\nCRITICAL: The user is speaking Amharic. You MUST respond entirely in clear, natural Amharic script (ፊደል). Do not speak English."
-            : "\n\nCRITICAL: The user is speaking English. You MUST respond entirely in clear English.";
 
+        // Sharpen the instructions to force Gemini to translate data queries into target script
+        const languageConstraint = userLanguage === 'am'
+            ? "\n\nCRITICAL BILINGUAL POLICY: The user is speaking Amharic. You must evaluate the user request, pull facts from tools if required, and provide your final response completely in clear, natural Amharic script (ፊደል). Do not output raw JSON, functional compiler code tokens, or English sentences."
+            : "\n\nCRITICAL BILINGUAL POLICY: The user is speaking English. Respond entirely in clear, friendly English.";
 
         const result = await generateText({
+            /*  // 🔄 WRAPPED WITH FALLBACK: Protects your account from 429 quota exhaustion 
+             model: fallback([
+                 google("gemini-1.5-flash"),
+                 google("gemini-2.5-flash"),
+                 google("gemini-2.5-flash-lite")
+             ]), */
             model: "google/gemini-2.5-flash-lite" as any,
             system: `${buildSystemPrompt(tenant)}${languageConstraint}`, // Forces runtime language adherence
             prompt,
@@ -309,29 +277,38 @@ async function processUpdate(
                 gateway: {
                     models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
                 },
-            },
-            maxSteps: 5,
-        } as any);
+                maxSteps: 5,
+            } as any,
+
+        });
+
         replyText = result.text;
+
+        // Validation interceptor against token leaks or internal compiler strings
+        if (!replyText || replyText.trim() === "" || replyText.includes("üllttool_code")) {
+            throw new Error("AI pipeline returned empty string or corrupted compiler tokens.");
+        }
+
     } catch (err: any) {
-        console.error(`[Bot][${tenant.companyName}] AI execution failed:`, err);
-        replyText = `⚠️ I'm sorry, I encountered an error. Please try again or contact ${tenant.supportHandle}.`;
+        console.error(`[Bot][${tenant.companyName}] AI multi-step execution failed completely:`, err);
+        // Multilingual fallback resilience
+        replyText = userLanguage === 'am'
+            ? `⚠️ ይቅርታ፣ መረጃውን ማግኘት አልቻልኩም። እባክዎ እንደገና ይሞክሩ ወይም እዚህ ያግኙን፡ ${tenant.supportHandle}።`
+            : `⚠️ I'm sorry, I encountered an issue processing that. Please try again or contact support at ${tenant.supportHandle}.`;
     }
 
-    console.log(`[Bot][${tenant.companyName}] AI responded:`, replyText.slice(0, 100));
-
-    // 🛠 Add this clean logging line directly above your try-catch block:
-    console.log(`[Diagnostic][${tenant.companyName}] Token Check: "${tenant.telegramBotToken ? 'EXISTS' : 'EMPTY'}" | Length: ${tenant.telegramBotToken?.length || 0} | ChatId: ${chatId}`);
+    console.log(`[Bot][${tenant.companyName}] AI finalized reply payload:`, replyText.slice(0, 100));
+    console.log(`[Diagnostic][${tenant.companyName}] Target Channel Token: "EXISTS" | Length: ${tenant.telegramBotToken.length} | ChatId: ${chatId}`);
 
     try {
-        // Force "HTML" instead of "Markdown" to match your refactored format.ts utility
+        // Dispatched exclusively with HTML parse modes
         await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "HTML");
-        console.log(`[Bot][${tenant.companyName}] Reply sent to Telegram.`);
+        console.log(`[Bot][${tenant.companyName}] Reply sent successfully to Telegram endpoints.`);
     } catch (err: any) {
-        console.error(`[Bot][${tenant.companyName}] Failed to send Telegram message:`, err);
+        console.error(`[Bot][${tenant.companyName}] Fatal transport exception:`, err);
     }
-
 }
+
 
 // ─── Onboarding Helpers ───────────────────────────────────────────────────────
 
