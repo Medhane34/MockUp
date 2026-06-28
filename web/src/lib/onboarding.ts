@@ -24,14 +24,12 @@ export async function handleOnboarding(
     tenant: TenantContext,
     tenantClient: SanityClient
 ): Promise<OnboardingResult> {
-    // Telegram sends either update.message or update.callback_query at the root level
     const msg = update.message ?? update.edited_message ?? null;
     const cbQuery = update.callback_query ?? null;
 
     const rawText = typeof msg?.text === "string" ? msg.text.trim() : "";
     const userText = rawText.toLowerCase();
 
-    // Derive `from` regardless of update type
     const from = msg?.from ?? cbQuery?.from ?? null;
 
     console.log(`[Onboarding][${tenant.companyName}] User ${telegramId} - Step: ${existingBuyer?.onboardingStep || 'new'}`);
@@ -70,7 +68,6 @@ export async function handleOnboarding(
         }
 
         if (cbData === "onboarding_agree") {
-            // Create Buyer document ONLY after user agrees
             await createOrUpdateBuyer(telegramId, {
                 username: from?.username,
                 onboardingStep: "name",
@@ -131,7 +128,7 @@ export async function handleOnboarding(
         };
     }
 
-    // ─── STEP 3: Phone Number (Contact Share) ───────────────────────────────────
+    // ─── STEP 3: Phone Number (Contact Share Catching Step) ─────────────────────
     if (msg?.contact && existingBuyer?.onboardingStep === "phone") {
         await createOrUpdateBuyer(telegramId, {
             phone: msg.contact.phone_number,
@@ -142,11 +139,16 @@ export async function handleOnboarding(
             handled: true,
             response: {
                 text: "Thank you! What's your preferred language?",
+                // 🔄 CRITICAL FIXED OBJECT: In Telegram, you cannot mix inline_keyboard and remove_keyboard 
+                // inside a single parameter field. Passing replyMarkup directly requires formatting it 
+                // in the payload handler within format.ts during execution.
                 replyMarkup: {
                     inline_keyboard: [
                         [{ text: "🇪🇹 Amharic", callback_data: "lang_am" }],
                         [{ text: "🇬🇧 English", callback_data: "lang_en" }],
                     ],
+                    // We attach this flag so our router's transport block strips the native button drawer
+                    remove_keyboard: true
                 },
             },
         };
@@ -158,7 +160,6 @@ export async function handleOnboarding(
 // ─── Helper: Show dynamic product categories as inline buttons ────────────────
 async function showInterestCategories(telegramId: string, tenantClient: SanityClient): Promise<OnboardingResult> {
     try {
-        // array::unique() is the correct GROQ syntax for deduplication
         const cats: string[] = await tenantClient.fetch(
             `array::unique(*[_type == "product" && defined(category)].category)`
         );
@@ -179,7 +180,6 @@ async function showInterestCategories(telegramId: string, tenantClient: SanityCl
         };
     } catch (e) {
         console.error("[Onboarding] Categories fetch failed:", e);
-        // Graceful fallback: skip interest step, mark completed
         await createOrUpdateBuyer(telegramId, { onboardingStep: "completed", status: "raw" }, tenantClient);
         return {
             handled: true,
