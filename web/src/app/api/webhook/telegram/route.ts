@@ -269,7 +269,7 @@ async function processUpdate(
                  google("gemini-2.5-flash"),
                  google("gemini-2.5-flash-lite")
              ]), */
-            model: "google/gemini-2.5-flash" as any,
+            model: "gemini-1.5-flash" as any,
             system: `${buildSystemPrompt(tenant)}${languageConstraint}`, // Forces runtime language adherence
             prompt,
             tools,

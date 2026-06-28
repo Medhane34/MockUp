@@ -55,7 +55,7 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         const { object } = await generateObject({
             // Explicitly typed using Vercel AI SDK Google provider (Fixes 'as any')
             // Using gemini-2.5-flash-lite as requested (perfect for routing sub-tasks)
-            model: google("google/gemini-2.5-flash"),
+            model: google("gemini-1.5-flash"),
             schema: z.object({
                 intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
                 confidence: z.number().min(0).max(1),
