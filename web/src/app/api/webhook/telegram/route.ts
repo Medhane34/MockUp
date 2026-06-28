@@ -291,16 +291,27 @@ async function processUpdate(
 
         });
 
+        // Capture the output from the AI response
         replyText = result.text;
 
-        // Validation interceptor against token leaks or internal compiler strings
-        if (!replyText || replyText.trim() === "" || replyText.includes("üllttool_code")) {
-            throw new Error("AI pipeline returned empty string or corrupted compiler tokens.");
+        // 🔄 FIXED: Instead of crashing your bot with a 'throw' error when text is empty,
+        // we smoothly handle it by applying a native Amharic or English conversational fallback.
+        if (!replyText || replyText.trim() === "") {
+            console.warn(`[Bot][${tenant.companyName}] AI returned a blank response text string. Applying fallback message.`);
+
+            replyText = userLanguage === 'am'
+                ? `ይቅርታ፣ አሁን ላይ መረጃውን ማግኘት አልቻልኩም። እባክዎ ጥያቄዎን በሌላ አገላለጽ እንደገና ይሞክሩት ወይም እዚህ ያግኙን፡ ${tenant.supportHandle}`
+                : `I couldn't retrieve that information right now. Please try rephrasing your request or reach out to us at ${tenant.supportHandle}.`;
+        }
+
+        // Clean out any raw internal system tags if they happen to look like code tokens
+        if (replyText.includes("üllttool_code")) {
+            replyText = replyText.replace(/üllttool_code/g, "");
         }
 
     } catch (err: any) {
         console.error(`[Bot][${tenant.companyName}] AI multi-step execution failed completely:`, err);
-        // Multilingual fallback resilience
+        // Multilingual fallback resilience if the entire network or API completely drops
         replyText = userLanguage === 'am'
             ? `⚠️ ይቅርታ፣ መረጃውን ማግኘት አልቻልኩም። እባክዎ እንደገና ይሞክሩ ወይም እዚህ ያግኙን፡ ${tenant.supportHandle}።`
             : `⚠️ I'm sorry, I encountered an issue processing that. Please try again or contact support at ${tenant.supportHandle}.`;
@@ -308,6 +319,7 @@ async function processUpdate(
 
     console.log(`[Bot][${tenant.companyName}] AI finalized reply payload:`, replyText.slice(0, 100));
     console.log(`[Diagnostic][${tenant.companyName}] Target Channel Token: "EXISTS" | Length: ${tenant.telegramBotToken.length} | ChatId: ${chatId}`);
+
     // Clean token calculation right here for visibility
     const cleanTokenForLog = tenant.telegramBotToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
     const computedUrlTest = `https://api.telegram.org/bot${cleanTokenForLog}/sendMessage`;
@@ -324,6 +336,7 @@ async function processUpdate(
         console.error(`[Bot][${tenant.companyName}] Fatal transport exception:`, err);
     }
 }
+
 
 
 // ─── Onboarding Helpers ───────────────────────────────────────────────────────
