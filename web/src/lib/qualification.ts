@@ -34,7 +34,7 @@ export async function shadowExtractQualification(userMessage: string): Promise<a
             model: google("gemini-2.5-flash"),
             schema: z.object({
                 coreNeed: z.string().optional().describe("Clean extracted summary of what specific item/service they are seeking (e.g. 'video editing laptop', 'wedding outfit'). Leave blank if they just said hello or generic phrases."),
-                budgetRange: z.enum(['<5k', '5k-20k', '>20k']).optional().describe("Inferred budget category based on context cues."),
+                budgetRange: z.enum(['under_50k', '50k_100k', '100k_200k', '200k_500k', '500k_1M', 'over_1M']).optional().describe("Inferred budget category based on context cues."),
                 timeline: z.enum(['immediate', '30_days', 'exploring']).optional().describe("Inferred buying urgency threshold."),
             }),
             system: `You are an invisible background data extraction worker. 
@@ -122,6 +122,8 @@ export async function processQualification(
  * ─── BILINGUAL & NICHE-ADAPTIVE KEYBOARDS ───
  * Renders fallback options matching your specific tenant's niche setup in both languages.
  */
+// src/lib/qualification.ts
+
 export function getMissingParameterKeyboard(missingField: 'budgetRange' | 'timeline', language: 'am' | 'en') {
     if (missingField === 'budgetRange') {
         return {
@@ -131,9 +133,10 @@ export function getMissingParameterKeyboard(missingField: 'budgetRange' | 'timel
             replyMarkup: {
                 inline_keyboard: [
                     [
-                        { text: language === 'am' ? "ከ 5k በታች" : "< 5,000 ETB", callback_data: "budget_<5k" },
-                        { text: "5k - 20k ETB", callback_data: "budget_5k-20k" },
-                        { text: language === 'am' ? "ከ 20k በላይ" : "> 20k ETB", callback_data: "budget_>20k" }
+                        // 🔄 FIXED VALUE STRINGS: These now map perfectly to your Sanity Studio drop-down choices
+                        { text: language === 'am' ? "ከ 50k በታች" : "Under 50k", callback_data: "budget_under_50k" },
+                        { text: "50k - 100k", callback_data: "budget_50k_100k" },
+                        { text: language === 'am' ? "ከ 100k በላይ" : "Over 100k", callback_data: "budget_100k_200k" }
                     ]
                 ]
             }
@@ -148,6 +151,7 @@ export function getMissingParameterKeyboard(missingField: 'budgetRange' | 'timel
         replyMarkup: {
             inline_keyboard: [
                 [
+                    // Standardized fallback strings for your chronological tracker logic
                     { text: language === 'am' ? "በአስቸኳይ" : "Immediate", callback_data: "timeline_immediate" },
                     { text: language === 'am' ? "በ30 ቀናት ውስጥ" : "Within 30 Days", callback_data: "timeline_30_days" },
                     { text: language === 'am' ? "ለማየት ብቻ" : "Exploring", callback_data: "timeline_exploring" }

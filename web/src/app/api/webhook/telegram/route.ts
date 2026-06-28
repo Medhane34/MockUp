@@ -179,8 +179,11 @@ async function processUpdate(
         if (cbData.startsWith("budget_") || cbData.startsWith("timeline_")) {
             console.log(`[Qualification Callback][${tenant.companyName}] Received: ${cbData}`);
 
-            const key = cbData.split("_")[0];
-            const value = cbData.split("_")[1];
+            const parts = cbData.split("_");
+            const key = parts[0]; // "budget" or "timeline"
+
+            // 🔄 FIXED: Joins all remaining parts back together, cleanly reconstructing "under_50k" or "30_days"
+            const value = parts.slice(1).join("_");
 
             // Re-routes parameters to update buyer metrics
             const updatedFields = {

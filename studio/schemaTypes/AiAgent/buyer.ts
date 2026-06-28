@@ -68,14 +68,20 @@ export default defineType({
             },
 
         },
+        // Inside your Sanity Studio schemas configuration file for 'buyer':
         {
             name: 'timeline',
             title: 'Purchase Timeline',
             type: 'string',
             options: {
-                list: ['Immediate', 'This Week', 'This Month', 'Exploring'],
+                list: [
+                    { title: 'Immediate / Urgent', value: 'immediate' },
+                    { title: 'Within 30 Days', value: '30_days' },
+                    { title: 'Exploring / Sometime', value: 'exploring' },
+                ],
             },
         },
+
         {
             name: 'qualificationNotes',
             title: 'AI Qualification Notes',
