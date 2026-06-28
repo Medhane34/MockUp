@@ -131,9 +131,40 @@ export async function sendFormattedMessage(
   if (parseMode) {
     body.parse_mode = parseMode;
   }
+  // ─── INSIDE sendFormattedMessage IN format.ts ───
 
   if (replyMarkup) {
-    body.reply_markup = typeof replyMarkup === "object" ? JSON.stringify(replyMarkup) : replyMarkup;
+    if (typeof replyMarkup === "object") {
+      // 🔄 SPLIT EXTRACTION LAYER: If remove_keyboard is true, we must dispatch an extra cleanup call 
+      // or handle it according to Telegram's parameters.
+      if (replyMarkup.remove_keyboard === true && replyMarkup.inline_keyboard) {
+        // To remove a reply keyboard while sending inline buttons, Telegram requires you to send 
+        // a quick initialization text or parse the inline array cleanly.
+        // The safest, most cross-compatible way is separating the properties or passing them as valid JSON:
+        body.reply_markup = JSON.stringify({
+          inline_keyboard: replyMarkup.inline_keyboard
+        });
+
+        // Quick background payload execution clears the persistent sticky keyboard drawer instantly
+        try {
+          await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: "⚡", // Fast background separator token character
+              reply_markup: { remove_keyboard: true }
+            }),
+          });
+        } catch (e) {
+          console.warn("[Telegram Transport] Quick drawer flush skipped:", e);
+        }
+      } else {
+        body.reply_markup = JSON.stringify(replyMarkup);
+      }
+    } else {
+      body.reply_markup = replyMarkup;
+    }
   }
 
   // 🔄 CRITICAL FIX 3: Diagnostic URL verification logger

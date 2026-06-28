@@ -404,7 +404,12 @@ async function handleOnboardingUpdate(
         const { handleOnboarding } = await import("@/lib/onboarding");
         const { getBuyer } = await import("@/lib/sanity/buyer");
 
-        const buyer = await getBuyer(telegramId, tenantClient);
+        // 1. Fetch the raw query response array from your database
+        const buyerResult = await getBuyer(telegramId, tenantClient);
+
+        // 2. 🔄 CRITICAL FIX: Extract the first element safely if it exists, matching onboarding's expectations
+        const buyer = Array.isArray(buyerResult) ? buyerResult[0] : buyerResult;
+
         const result = await handleOnboarding(null, update, buyer, telegramId, tenant, tenantClient);
 
         if (result.handled && result.response) {
@@ -422,7 +427,7 @@ async function handleOnboardingUpdate(
             tenant.telegramBotToken,
             chatId,
             `Welcome to ${tenant.companyName}! Type /start to begin.`,
-            null
+            "HTML" // Standardized to HTML
         );
     }
 }
