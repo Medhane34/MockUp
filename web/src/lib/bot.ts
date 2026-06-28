@@ -17,7 +17,7 @@ import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";
 import type { TenantContext } from "@/types/tenant";
 import { createTenantClient } from "@/sanity/client";
-import { getBuyer, updateBuyerInteraction } from "./sanity/buyer";
+import { getBuyer, updateBuyerProfile, } from "./sanity/buyer";
 import { handleOnboarding } from "./onboarding";
 import { detectIntent } from "./ai/intent";
 import {
@@ -147,8 +147,8 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
         // Persist to history
         await saveToHistory(threadId, "user", userText);
         await saveToHistory(threadId, "assistant", replyText);
-        await updateBuyerInteraction(telegramId, tenantClient);
-
+        /*         await updateBuyerProfile(telegramId, tenantClient, {});
+         */
         await thread.post(replyText);
 
     } catch (error: any) {

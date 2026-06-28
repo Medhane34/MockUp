@@ -36,12 +36,8 @@ export default defineType({
             options: {
                 list: [
                     { title: 'New', value: 'new' },
-                    { title: 'Intent Captured', value: 'intent' },
-                    { title: 'Needs Identified', value: 'needs' },
-                    { title: 'Qualified', value: 'qualified' },
-                    { title: 'Quoted', value: 'quoted' },
-                    { title: 'Customer', value: 'customer' },
-                    { title: 'Lost', value: 'lost' },
+                    { title: 'Partial', value: 'partial' },
+                    { title: 'Fully Qualified', value: 'fully_qualified' },
                 ],
             },
             initialValue: 'new',
@@ -60,6 +56,17 @@ export default defineType({
             name: 'budgetRange',
             title: 'Budget Range (ETB)',
             type: 'string',
+            options: {
+                list: [
+                    { title: 'Under 50k', value: 'under_50k' },
+                    { title: '50k - 100k', value: '50k_100k' },
+                    { title: '100k - 200k', value: '100k_200k' },
+                    { title: '200k - 500k', value: '200k_500k' },
+                    { title: '500k - 1M', value: '500k_1M' },
+                    { title: 'Over 1M', value: 'over_1M' },
+                ],
+            },
+
         },
         {
             name: 'timeline',

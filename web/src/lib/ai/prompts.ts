@@ -53,29 +53,39 @@ ${tenant.conversionGoalDescription ? `\nConversion Goal: ${tenant.conversionGoal
 }
 
 // ─── Contextual prompt builders ─────────────────────────────────────────────────
+// Add these instructions directly into your buildSalesPrompt inside prompts.ts:
 
-export function buildSalesPrompt(ctx: PromptContext): string {
+export function buildSalesPrompt(ctx: PromptContext & { buyerProfile?: any }): string {
     const itemLabel = getNicheItemLabel(ctx.tenant.niche);
     const isAmharic = ctx.userLanguage === 'am';
+    const score = ctx.buyerProfile?.leadScore || 0;
+    const stage = ctx.buyerProfile?.qualificationStage || 'new';
 
     return `
 User Name: ${ctx.userName}
 User Message: "${ctx.userMessage}"
 Target Language: ${ctx.userLanguage || 'en'}
 
+Buyer Profile Metadata:
+- Current Lead Score: ${score}/100
+- Qualification Stage: ${stage}
+- Collected Budget: ${ctx.buyerProfile?.budgetRange || 'Unknown'}
+- Collected Timeline: ${ctx.buyerProfile?.timeline || 'Unknown'}
+
 ${ctx.tenant.companyName} Catalog Data Context:
 ${ctx.sanityContext || `No specific ${itemLabel} context found.`}
 
-CRITICAL INSTRUCTIONS FOR TRANSFERS:
-1. Help the user find the ${itemLabel} they want. Present them enthusiastically with key details.
-2. Always include price and availability status.
-3. ${isAmharic ? `
-- WARNING: The database context contains English strings. Because Target Language is 'am', you MUST translate these product names, categories, and attributes instantly into clean, natural Amharic script (ፊደል). 
-- Do NOT output English words or code blocks. For instance, if data shows name: "Coffee", write "የቡና ማሽን" or "ቡና".
-- For price tokens, append 'ብር' or 'ETB' accurately (e.g., '500 ብር').` : 'Present all fields clearly in English.'}
-4. Suggest they can ask for specific details about any single ${itemLabel.replace(/s$/, '')} by mentioning its name.
+CRITICAL ADAPTIVE ROUTING RULES:
+1. Present the ${itemLabel} enthusiastically with key details (price and availability status).
+2. If Target Language is 'am', translate all fields instantly into clean, natural Amharic script (ፊደል).
+3. ${stage === 'fully_qualified' ? `
+- NOTICE: This lead is fully qualified and ready to convert! 
+- Do not drag out the conversation or ask further qualifying questions.
+- Strongly and directly guide them to complete their transaction right now by contacting our team at ${ctx.tenant.supportHandle}.` : `
+- Notice: This lead needs further tracking. Intertwine your answers with natural, open-ended conversational transitions to help understand their preferences.`}
 `;
 }
+
 
 export function buildInfoPrompt(ctx: PromptContext): string {
     const isAmharic = ctx.userLanguage === 'am';

@@ -16,10 +16,10 @@ import { buildSanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
 import type { TenantContext } from "@/types/tenant";
-import { getQualificationKeyboard, processQualification } from "@/lib/qualification";
-import { createOrUpdateBuyer, getBuyer } from "@/lib/sanity/buyer";
+import { createOrUpdateBuyer, getBuyer, getOrCreateBuyer } from "@/lib/sanity/buyer";
 import { any } from "zod";
 import { google } from "@ai-sdk/google";
+import { getMissingParameterKeyboard, processQualification } from "@/lib/qualification";
 
 // Allow up to 60s for AI to respond
 export const maxDuration = 60;
@@ -167,30 +167,39 @@ async function processUpdate(
         console.error(`[Webhook][${tenant.companyName}] Terminating request early: Missing bot token configuration.`);
         return;
     }
+    // ─── STEP 1: INITIALIZE OR FETCH CONVERSATIONAL BUYER STOCK ───
+    const currentUserName = message?.from?.username ?? message?.from?.first_name ?? callbackQuery?.from?.username ?? "user";
+    const existingBuyer = await getOrCreateBuyer(telegramId, currentUserName, tenantClient);
 
     // Handle Callback Queries for Qualification
+    // Handle Callback Queries for Qualification (Buttons UI Layer)
     if (callbackQuery) {
         const cbData = callbackQuery.data || "";
 
-        if (cbData.startsWith("interest_") || cbData.startsWith("budget_") || cbData.startsWith("timeline_")) {
+        if (cbData.startsWith("budget_") || cbData.startsWith("timeline_")) {
             console.log(`[Qualification Callback][${tenant.companyName}] Received: ${cbData}`);
 
             const key = cbData.split("_")[0];
             const value = cbData.split("_")[1];
 
-            await createOrUpdateBuyer(telegramId, {
-                interests: key === "interest" ? [value] : undefined,
+            // Re-routes parameters to update buyer metrics
+            const updatedFields = {
                 budgetRange: key === "budget" ? value : undefined,
                 timeline: key === "timeline" ? value : undefined,
                 lastQualifiedAt: new Date().toISOString(),
-            }, tenantClient);
+            };
 
-            await sendFormattedMessage(
-                tenant.telegramBotToken,
-                chatId,
-                "Thank you! Got it. 🎉\n\nAnything else I can help with?",
-                "HTML" // Swapped to HTML for unified parsing engine stability
-            );
+            await createOrUpdateBuyer(telegramId, updatedFields, tenantClient);
+
+            // Fetch the updated buyer profile context to generate a correct responsive fallback phrase
+            const freshlyPatchedBuyer = await getOrCreateBuyer(telegramId, currentUserName, tenantClient);
+            const language = freshlyPatchedBuyer.language || 'en';
+
+            const feedbackText = language === 'am'
+                ? "እናመሰግናለን! መረጃው ተመዝግቧል። 🎉\n\nሌላ የምችለው ነገር አለ?"
+                : "Thank you! Information captured successfully. 🎉\n\nAnything else I can help with?";
+
+            await sendFormattedMessage(tenant.telegramBotToken, chatId, feedbackText, "HTML");
             return;
         }
     }
@@ -215,11 +224,40 @@ async function processUpdate(
 
     const intent = intentResult.intent as string;
     const userLanguage = intentResult.language || 'en';
-    const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant, userLanguage };
 
-    // 2. Pre-Populate Static Context Rules for Baseline Prompt Fallbacks
+    // ─── STEP 3: RUN THE ADAPTIVE ADAPTION PIPELINE (SHADOW AI + SCORING) ───
+    let activeBuyerProfile = existingBuyer;
+    try {
+        activeBuyerProfile = await processQualification(telegramId, intentResult, userText, tenantClient, tenant, existingBuyer);
+    } catch (err) {
+        console.error(`[Bot][${tenant.companyName}] Qualification workflow exception skipped:`, err);
+    }
+    // ─── STEP 4: SMART FRICTION LOOP INTERCEPTOR (INTERACTIVE BUTTON LAYER) ───
+    if (intent === "order" || intent === "qualification") {
+        if (!activeBuyerProfile?.budgetRange || activeBuyerProfile.budgetRange === "") {
+            console.log(`[UX Interceptor][${tenant.companyName}] Budget parameter missing. Serving Inline Keyboard.`);
+            const kb = getMissingParameterKeyboard('budgetRange', userLanguage);
+            await sendFormattedMessage(tenant.telegramBotToken, chatId, kb.text, "HTML", kb.replyMarkup);
+            return;
+        }
+        if (!activeBuyerProfile?.timeline || activeBuyerProfile.timeline === "") {
+            console.log(`[UX Interceptor][${tenant.companyName}] Timeline parameter missing. Serving Inline Keyboard.`);
+            const kb = getMissingParameterKeyboard('timeline', userLanguage);
+            await sendFormattedMessage(tenant.telegramBotToken, chatId, kb.text, "HTML", kb.replyMarkup);
+            return;
+        }
+    }
+    // ─── STEP 5: ASSEMBLING INTEGRATED PROMPT CONTEXT PAYLOAD ───
     let sanityContext = "";
     let prompt = "";
+    const ctx = {
+        userName,
+        userMessage: userText,
+        detectedIntent: intent,
+        tenant,
+        userLanguage,
+        buyerProfile: activeBuyerProfile // Pass scores directly into prompt generation rules
+    };
 
     try {
         if (intent === "product_browse") {
