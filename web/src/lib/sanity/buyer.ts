@@ -2,12 +2,9 @@
 import type { SanityClient } from "next-sanity";
 
 /**
- * All functions require a `tenantClient` — the per-tenant Sanity client.
- * Never use the adminClient here. Buyers live in each tenant's own project.
- */
-
-/**
  * Retrieves a single buyer document by their unique Telegram ID.
+ * 🔄 FIXED: Appended [0] to the GROQ statement to ensure it explicitly returns 
+ * a single Object primitive value block instead of a nested collection array structure.
  */
 export async function getBuyer(telegramId: string, tenantClient: SanityClient) {
     const query = `*[_type == "buyer" && telegramId == $telegramId][0]`;
@@ -16,7 +13,6 @@ export async function getBuyer(telegramId: string, tenantClient: SanityClient) {
 
 /**
  * Retrieves an existing buyer or instantiates a new default record if they are a raw lead.
- * This guarantees downstream pipeline functions always operate on a valid profile object stock.
  */
 export async function getOrCreateBuyer(telegramId: string, username: string, tenantClient: SanityClient) {
     const existing = await getBuyer(telegramId, tenantClient);
@@ -34,7 +30,7 @@ export async function getOrCreateBuyer(telegramId: string, username: string, ten
         lastInteraction: new Date().toISOString(),
         status: 'raw',
         totalMessages: 1,
-        // Default Baseline Qualification State
+        // Default Baseline Qualification State parameters
         leadScore: 0,
         qualificationStage: 'new',
         intentType: 'unknown',
@@ -49,7 +45,6 @@ export async function getOrCreateBuyer(telegramId: string, username: string, ten
 
 /**
  * Unified, deterministic profile mutation patcher.
- * Merges conversational tracking counters alongside structural BANT parameters safely.
  */
 export async function updateBuyerProfile(
     telegramId: string,
@@ -66,6 +61,10 @@ export async function updateBuyerProfile(
         interests?: string[];
         qualificationNotes?: string;
         lastQualifiedAt?: string;
+        onboardingStep?: string;
+        firstName?: string;
+        phone?: string;
+        preferredLanguage?: string;
     }
 ) {
     const buyer = await getBuyer(telegramId, tenantClient);
@@ -74,12 +73,12 @@ export async function updateBuyerProfile(
         return null;
     }
 
-    // Build the patch payload, ensuring empty variables or undefined markers don't erase existing database values
     const patchPayload: Record<string, any> = {
         lastInteraction: new Date().toISOString(),
         totalMessages: (buyer.totalMessages || 0) + 1,
     };
 
+    // Safely map all active parameter states onto the storage structures cleanly
     if (updateData.username !== undefined) patchPayload.username = updateData.username;
     if (updateData.status !== undefined) patchPayload.status = updateData.status;
     if (updateData.leadScore !== undefined) patchPayload.leadScore = updateData.leadScore;
@@ -92,18 +91,22 @@ export async function updateBuyerProfile(
     if (updateData.qualificationNotes !== undefined) patchPayload.qualificationNotes = updateData.qualificationNotes;
     if (updateData.lastQualifiedAt !== undefined) patchPayload.lastQualifiedAt = updateData.lastQualifiedAt;
 
+    // 🔄 ADDED ONBOARDING SYSTEM FIELD HOOKS SAFELY HERE:
+    if (updateData.onboardingStep !== undefined) patchPayload.onboardingStep = updateData.onboardingStep;
+    if (updateData.firstName !== undefined) patchPayload.firstName = updateData.firstName;
+    if (updateData.phone !== undefined) patchPayload.phone = updateData.phone;
+    if (updateData.preferredLanguage !== undefined) patchPayload.preferredLanguage = updateData.preferredLanguage;
+
     console.log(`[Buyer Engine] Committing patch mutations to Sanity document: ${buyer._id}`);
     return tenantClient.patch(buyer._id).set(patchPayload).commit();
 }
 
 /**
- * Legacy compatibility fallback wrapper method. 
- * Maps directly over updateBuyerProfile to ensure existing platform controllers do not break.
+ * Legacy compatibility fallback wrapper method.
  */
 export async function createOrUpdateBuyer(telegramId: string, data: any, tenantClient: SanityClient) {
     const buyer = await getBuyer(telegramId, tenantClient);
     if (!buyer) {
-        // Fallback create branch
         return tenantClient.create({
             _type: 'buyer',
             telegramId,

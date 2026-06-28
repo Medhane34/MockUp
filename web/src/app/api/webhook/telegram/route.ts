@@ -385,11 +385,7 @@ async function checkOnboardingComplete(
 ): Promise<boolean> {
     try {
         const { getBuyer } = await import("@/lib/sanity/buyer");
-        const buyerResult = await getBuyer(telegramId, tenantClient);
-
-        // 🔄 FIX: Read the first item from the array safely
-        const buyer = Array.isArray(buyerResult) ? buyerResult[0] : buyerResult;
-
+        const buyer = await getBuyer(telegramId, tenantClient);
         return !!(buyer && buyer.onboardingStep === "completed");
     } catch (e) {
         console.error("[Onboarding] Check failed:", e);
@@ -409,14 +405,12 @@ async function handleOnboardingUpdate(
         const { handleOnboarding } = await import("@/lib/onboarding");
         const { getBuyer } = await import("@/lib/sanity/buyer");
 
-        const buyerResult = await getBuyer(telegramId, tenantClient);
-        const buyer = Array.isArray(buyerResult) ? buyerResult[0] : buyerResult;
+        // ✅ Directly fetches the singular buyer object dictionary without type confusion
+        const buyer = await getBuyer(telegramId, tenantClient);
 
-        // Execute the onboarding logic block
         const result = await handleOnboarding(null, update, buyer, telegramId, tenant, tenantClient) as any;
 
         if (result.handled && result.response) {
-            // Step A: Send the primary message (e.g., closing the native button drawer)
             await sendFormattedMessage(
                 tenant.telegramBotToken,
                 chatId,
@@ -425,11 +419,8 @@ async function handleOnboardingUpdate(
                 result.response.replyMarkup ?? null
             );
 
-            // Step B: If a sequential follow-up message exists, dispatch it immediately after
             if (result.nextResponse) {
-                // Short 100ms timeout prevents network packet collisions over the Vercel gateway
-                await new Promise((resolve) => setTimeout(resolve, 100));
-
+                await new Promise((resolve) => setTimeout(resolve, 150));
                 await sendFormattedMessage(
                     tenant.telegramBotToken,
                     chatId,
@@ -441,11 +432,5 @@ async function handleOnboardingUpdate(
         }
     } catch (e) {
         console.error(`[Onboarding Handler][${tenant.companyName}] Failed:`, e);
-        await sendFormattedMessage(
-            tenant.telegramBotToken,
-            chatId,
-            `Welcome to ${tenant.companyName}! Type /start to begin.`,
-            "HTML"
-        );
     }
 }
