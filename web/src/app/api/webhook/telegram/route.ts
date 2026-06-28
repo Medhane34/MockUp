@@ -19,6 +19,7 @@ import type { TenantContext } from "@/types/tenant";
 import { getQualificationKeyboard, processQualification } from "@/lib/qualification";
 import { createOrUpdateBuyer, getBuyer } from "@/lib/sanity/buyer";
 import { any } from "zod";
+import { google } from "@ai-sdk/google";
 
 // Allow up to 60s for AI to respond
 export const maxDuration = 60;
@@ -269,7 +270,7 @@ async function processUpdate(
                  google("gemini-2.5-flash"),
                  google("gemini-2.5-flash-lite")
              ]), */
-            model: "google/gemini-2.5-flash" as any,
+            model: google("gemini-2.5-flash"),
             system: `${buildSystemPrompt(tenant)}${languageConstraint}`, // Forces runtime language adherence
             prompt,
             tools,

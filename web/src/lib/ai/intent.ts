@@ -1,8 +1,8 @@
 // src/lib/ai/intent.ts
-import { generateObject } from "ai";
+import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
 import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
-
+import { generateObject } from "ai";
 export type IntentType =
     | 'product_browse'
     | 'product_detail'
@@ -64,8 +64,7 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         const { object } = await generateObject({
             // 🔄 UPDATED: Now uses your initialized gateway instance.
             // Using 'gemini-1.5-flash' to leverage the large 1500 req/day free pool.
-            model: "google/gemini-2.5-flash" as any,
-            schema: z.object({
+            model: google("gemini-2.5-flash"), schema: z.object({
                 intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
                 confidence: z.number().min(0).max(1),
                 language: z.enum(['am', 'en']).describe("Detected language of the user text. 'am' for Amharic script/transliteration, 'en' for English."),
