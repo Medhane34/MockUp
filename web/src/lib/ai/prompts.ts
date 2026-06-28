@@ -10,7 +10,7 @@ export interface PromptContext {
     userLanguage?: 'am' | 'en'; // Added language visibility into context payloads
 }
 
-// ─── Niche-specific vocabulary helpers ─────────────────────────────────────────
+// ─── Niche-specific vocabulary helpers improved ─────────────────────────────────────────
 function getNicheItemLabel(niche: string): string {
     switch (niche) {
         case 'services': return 'services';
