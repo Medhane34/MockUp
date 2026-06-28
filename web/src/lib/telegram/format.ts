@@ -118,8 +118,8 @@ export async function sendFormattedMessage(
   }
 
   // Build the clean, bulletproof URL string
-  const telegramApi = `https://telegram.org{cleanToken}/sendMessage`;
-  console.log('this is telegramApi', telegramApi)
+
+  const telegramApi = `https://api.telegram.org/bot${cleanToken}/sendMessage`;
   // Process markdown into HTML if parseMode is HTML
   const processedText = parseMode === "HTML" ? markdownToHtml(text) : text;
 

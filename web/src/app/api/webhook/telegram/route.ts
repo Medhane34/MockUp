@@ -299,6 +299,13 @@ async function processUpdate(
 
     console.log(`[Bot][${tenant.companyName}] AI finalized reply payload:`, replyText.slice(0, 100));
     console.log(`[Diagnostic][${tenant.companyName}] Target Channel Token: "EXISTS" | Length: ${tenant.telegramBotToken.length} | ChatId: ${chatId}`);
+    // Clean token calculation right here for visibility
+    const cleanTokenForLog = tenant.telegramBotToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
+    const computedUrlTest = `https://api.telegram.org/bot${cleanTokenForLog}/sendMessage`;
+
+    // 🛠 THIS WILL DEFINITELY PRINT IN YOUR VERCEL TERMINAL UNLESS THE APP CRASHED BEFORE THIS LINE
+    console.log(`[CRITICAL DIAGNOSTIC][${tenant.companyName}] Full Target Outbound URL: ${computedUrlTest}`);
+    console.log(`[CRITICAL DIAGNOSTIC][${tenant.companyName}] Sending to ChatId: ${chatId} | Message length: ${replyText.length}`);
 
     try {
         // Dispatched exclusively with HTML parse modes
