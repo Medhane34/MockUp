@@ -135,9 +135,16 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
             ],
             tools,
             providerOptions: {
-                gateway: {
-                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
+                google: {
+                    useProduction: true, // This ensures v1 API, not v1beta
                 },
+                // Additionally, you can specify provider order
+                gateway: {
+                    order: ['google'], // Only use Google's production endpoint
+                },
+                /*  gateway: {
+                     models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
+                 }, */
             },
             maxSteps: 5,
         } as any);

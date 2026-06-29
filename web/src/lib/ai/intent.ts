@@ -76,9 +76,17 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
             }),
             // 🔄 The gateway fallback parameter is now fully functional because it maps over an active gateway token
             providerOptions: {
-                gateway: {
-                    models: ['google/gemini-2.5-flash', 'google/gemini-1.5-flash'],
+                // Use Google's production endpoint (not v1beta experimental)
+                google: {
+                    useProduction: true, // This ensures v1 API, not v1beta
                 },
+                // Additionally, you can specify provider order
+                gateway: {
+                    order: ['google'], // Only use Google's production endpoint
+                },
+                /*  gateway: {
+                     models: ['google/gemini-2.5-flash', 'google/gemini-1.5-flash'],
+                 }, */
             },
             system: `You are an expert bilingual (English & Amharic) intent classifier for "${tenant.companyName}", which operates in the ${tenant.niche} niche.
 Your goal is to parse user intents accurately, resolving native variations, spelling variants, and Amharic script (ፊደል).
