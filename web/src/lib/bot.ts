@@ -127,7 +127,7 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
 
         const tools = buildSanityTools(tenantClient, tenant);
         const result = await generateText({
-            model: google("gemini-1.5-flash"),
+            model: google("google/gemini-2.5-flash-lite"),
             system: buildSystemPrompt(tenant),
             messages: [
                 ...history.map((msg: any) => ({ role: msg.role, content: msg.content })),
