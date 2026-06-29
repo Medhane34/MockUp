@@ -26,6 +26,15 @@ export interface FAQItem {
     category?: string;
 }
 
+export interface RecommendationContext {
+    intent: string;
+    coreNeed: string;
+    budgetRange?: string;
+    timeline?: string;
+    categories?: string[];
+}
+
+
 export async function getProductList(tenantClient: SanityClient, category?: string): Promise<ProductSummary[]> {
     const filter = category
         ? `_type == "product" && category == $category`
@@ -88,4 +97,51 @@ export async function getProductCategories(tenantClient: SanityClient): Promise<
     return tenantClient.fetch(
         `array::unique(*[_type == "product" && defined(category)].category)`
     );
+}
+
+
+// Add this helper function directly to your existing queries file
+
+/**
+ * Executes a tailored GROQ lookup filtering strictly by price boundaries and category constraints.
+ * This ensures the recommendation tool receives a concentrated knowledge context slot.
+ */
+// src/lib/sanity/queries.ts
+
+export async function getProductRecommendations(
+    tenantClient: any,
+    category?: string,
+    minPrice: number = 0,
+    maxPrice: number = Infinity
+): Promise<any[]> {
+    // Basic numerical filtering parameters
+    let filter = `_type == "product" && price >= $minPrice && price <= $maxPrice`;
+
+    // 🔄 FIXED CASE-SENSITIVITY: Lowercase both the field property and input variable 
+    // using string processing wrappers to ensure clean, resilient matches.
+    if (category && category.trim() !== "") {
+        filter += ` && lower(category) == lower($category)`;
+    }
+
+    const query = `*[${filter}]{
+        name,
+        slug,
+        price,
+        inStock,
+        category,
+        description
+    }[0...5]`;
+
+    try {
+        // Force the input string criteria to lowercase before transmission
+        const cleanCategory = category ? category.trim().toLowerCase() : "";
+        return await tenantClient.fetch(query, {
+            category: cleanCategory,
+            minPrice,
+            maxPrice
+        });
+    } catch (err) {
+        console.error("[Sanity Query] Recommendation fetch failed:", err);
+        return [];
+    }
 }

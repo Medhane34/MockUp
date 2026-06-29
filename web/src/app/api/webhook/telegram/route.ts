@@ -11,15 +11,26 @@ import {
     buildSupportPrompt,
     buildGreetingPrompt,
     buildFallbackPrompt,
+    buildRecommendationPrompt,
 } from "@/lib/ai/prompts";
 import { buildSanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
-import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
+import { getProductList, getProductDetails, getFAQs, getProductRecommendations } from "@/lib/sanity/queries";
 import type { TenantContext } from "@/types/tenant";
-import { createOrUpdateBuyer, getBuyer, getOrCreateBuyer } from "@/lib/sanity/buyer";
+import { createOrUpdateBuyer, getBuyer, getOrCreateBuyer, updateBuyerProfile } from "@/lib/sanity/buyer";
 import { any } from "zod";
 import { google } from "@ai-sdk/google";
-import { getMissingParameterKeyboard, processQualification } from "@/lib/qualification";
+import { calculateDynamicLeadStatus, getMissingParameterKeyboard, processQualification } from "@/lib/qualification";
+import { createGateway } from '@ai-sdk/gateway';
+import { getAdaptiveQualificationRule } from "@/lib/sanity/rules";
+
+// ─── Gateway Initialization ───────────────────────────────────────────────
+// Use the GOOGLE_API_KEY from your environment variables.
+// We explicitly set autoTokenFetching to true so you don't need to manage keys.
+const gateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+});
+
 
 // Allow up to 60s for AI to respond
 export const maxDuration = 60;
@@ -139,6 +150,43 @@ export async function POST(request: NextRequest) {
 
     return new Response("OK", { status: 200 });
 }
+/**
+ * Type-safe helper mapping conversational budget strings to strict numerical price constraints.
+ * Resolves implicit 'any' indexing compilation errors.
+ */
+/**
+ * Type-safe helper mapping conversational budget strings to strict numerical price constraints.
+ */
+function getBudgetBounds(budgetRange?: string): { min: number; max: number } {
+    const cleanRange = budgetRange?.toLowerCase().trim() || "";
+
+    // Explicit dictionary type mapping matching your exact Sanity configuration formats
+    const lookup: Record<string, { min: number; max: number }> = {
+        under_50k: { min: 0, max: 50000 },
+        "50k_100k": { min: 50000, max: 100000 },
+        "50k_200k": { min: 50000, max: 200000 }, // Added missing 50k_200k bounds explicitly
+        "100k_200k": { min: 100000, max: 200000 },
+        "200k_500k": { min: 200000, max: 500000 },
+        "500k_1m": { min: 500000, max: 1000000 },
+        over_1m: { min: 1000000, max: Infinity },
+    };
+
+    return lookup[cleanRange] || { min: 0, max: Infinity };
+}
+
+/**
+ * 🟢 NEW HELPER: Strips trailing descriptor noise from coreNeed to protect database lookups
+ */
+function cleanCategoryKeyword(catString?: string): string {
+    if (!catString) return "";
+    return catString
+        .toLowerCase()
+        .replace(/products/g, "")
+        .replace(/catalog/g, "")
+        .replace(/items/g, "")
+        .trim();
+}
+
 
 // ─── Core AI processing ────────────────────────────────────────────────────────
 async function processUpdate(
@@ -151,6 +199,7 @@ async function processUpdate(
 
     let chatId: number;
     let telegramId: string;
+    let activeBuyerProfile: any = null; // 🟢 FIX: Declared globally at the top of the scope block
 
     if (callbackQuery) {
         chatId = callbackQuery.message?.chat?.id || 0;
@@ -170,89 +219,214 @@ async function processUpdate(
     // ─── STEP 1: INITIALIZE OR FETCH CONVERSATIONAL BUYER STOCK ───
     const currentUserName = message?.from?.username ?? message?.from?.first_name ?? callbackQuery?.from?.username ?? "user";
     const existingBuyer = await getOrCreateBuyer(telegramId, currentUserName, tenantClient);
+    // ─── 🟢 IN-MEMORY OVERRIDE POINTERS & CALLBACK FLAG ───
+    // isQualificationCallback = true means a budget_/timeline_ button was clicked.
+    // When true we skip processQualification entirely — the shadow AI has no signal
+    // from the simulated "recommendation" text and would only erase saved data.
+    let forcedBudgetOverride: string | undefined = undefined;
+    let forcedTimelineOverride: string | undefined = undefined;
+    let isQualificationCallback = false;
 
     // Handle Callback Queries for Qualification
-    // Handle Callback Queries for Qualification (Buttons UI Layer)
+    // ─── 1. FIXED CALLBACK QUERY CONTROLLER (CONTINUOUS CHAINING LOOP) ───
     if (callbackQuery) {
         const cbData = callbackQuery.data || "";
+        // 🟢 INTERCEPT THE INITIAL RECOMMENDATION CTA BUTTON SAFELY
+        if (cbData === "recommend_init") {
+            console.log(`[Recommendation Engine] User initiated a personalized finder journey.`);
+
+            const cleanToken = tenant.telegramBotToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
+            const ackUrl = `https://telegram.org/bot${cleanToken}/answerCallbackQuery`;
+            try {
+                await fetch(ackUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ callback_query_id: callbackQuery.id }),
+                });
+            } catch (e) { }
+
+            // Pass execution straight down into the main loop handlers with a recommendation intent token
+            update.message = { text: "recommendation", chat: { id: chatId }, from: callbackQuery.from };
+        }
 
         if (cbData.startsWith("budget_") || cbData.startsWith("timeline_")) {
-            console.log(`[Qualification Callback][${tenant.companyName}] Received: ${cbData}`);
+            console.log(`[Qualification Callback][${tenant.companyName}] Received Button Click: ${cbData}`);
+            // 🛠 TRACE LOG 1: Capture the incoming raw button string details
+            console.log(`[DIAGNOSTIC 1] Tapped Button Data Token: "${cbData}"`);
 
             const parts = cbData.split("_");
-            const key = parts[0]; // "budget" or "timeline"
-
-            // 🔄 FIXED: Joins all remaining parts back together, cleanly reconstructing "under_50k" or "30_days"
+            const key = parts[0];
             const value = parts.slice(1).join("_");
+            // ─── 🟢 SET OVERRIDE VALUES & MARK AS CALLBACK PATH ───
+            if (key === "budget") forcedBudgetOverride = value;
+            if (key === "timeline") forcedTimelineOverride = value;
+            isQualificationCallback = true; // ← prevents processQualification from wiping these
 
-            // Re-routes parameters to update buyer metrics
+
+            // 🛠 TRACE LOG 2: Verify the parsed keys and values match your schema models
+            console.log(`[DIAGNOSTIC 2] Parsed Components -> Key: "${key}", Value: "${value}"`);
+
             const updatedFields = {
                 budgetRange: key === "budget" ? value : undefined,
                 timeline: key === "timeline" ? value : undefined,
                 lastQualifiedAt: new Date().toISOString(),
             };
 
+            // 1. Save button selection straight to Sanity
             await createOrUpdateBuyer(telegramId, updatedFields, tenantClient);
-
-            // Fetch the updated buyer profile context to generate a correct responsive fallback phrase
+            console.log(`[DIAGNOSTIC 3] Sanity patch commit triggered successfully.`);
             const freshlyPatchedBuyer = await getOrCreateBuyer(telegramId, currentUserName, tenantClient);
-            const language = freshlyPatchedBuyer.language || 'en';
 
-            const feedbackText = language === 'am'
-                ? "እናመሰግናለን! መረጃው ተመዝግቧል። 🎉\n\nሌላ የምችለው ነገር አለ?"
-                : "Thank you! Information captured successfully. 🎉\n\nAnything else I can help with?";
+            // Dynamically recalculate and update lead score stage states
+            const statusMetrics = calculateDynamicLeadStatus(freshlyPatchedBuyer);
+            await updateBuyerProfile(telegramId, tenantClient, {
+                qualificationStage: statusMetrics.stage,
+                leadScore: statusMetrics.score
+            });
+            // 🛠 TRACE LOG 4: Check if Sanity's returned cache object is holding the update or masking it
+            console.log(`[DIAGNOSTIC 4] Sanity Fetch Result -> Cache Budget: "${freshlyPatchedBuyer.budgetRange}", Cache Timeline: "${freshlyPatchedBuyer.timeline}"`);
 
-            await sendFormattedMessage(tenant.telegramBotToken, chatId, feedbackText, "HTML");
-            return;
+            // 3. Update the local context profile state so Step 4 evaluates fresh data fields instantly
+            activeBuyerProfile = {
+                ...freshlyPatchedBuyer,
+                budgetRange: key === "budget" ? value : (freshlyPatchedBuyer.budgetRange || ""),
+                timeline: key === "timeline" ? value : (freshlyPatchedBuyer.timeline || ""),
+                qualificationStage: statusMetrics.stage,
+                leadScore: statusMetrics.score
+            };
+            // 🛠 TRACE LOG 5: Absolute confirmation check of what Step 4 will see
+            console.log(`[DIAGNOSTIC 5] Final Forced Variable State -> Budget to Step 4: "${activeBuyerProfile.budgetRange}", Timeline to Step 4: "${activeBuyerProfile.timeline}"`);
+
+            // Clean, whitespace-stripped token extraction for safe endpoint construction
+            const cleanToken = tenant.telegramBotToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
+
+            // ✅ CORRECT FIXED API PATH CONCATENATION:
+            const ackUrl = "https://api.telegram.org/bot" + cleanToken + "/answerCallbackQuery";
+
+            try {
+                await fetch(ackUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ callback_query_id: callbackQuery.id }),
+                });
+                console.log("[Telegram] Callback query successfully acknowledged.");
+            } catch (e) {
+                console.warn("[Telegram] Callback acknowledgement failed to connect:", e);
+            }
+            // Shift pointers to cascade cleanly into the parser layers below
+            // 1. 🔄 FIRST: Inject the mock simulated text token directly into the update context object wrapper
+            const simulatedText = "recommendation";
+            update.message = { text: simulatedText, chat: { id: chatId }, from: callbackQuery.from };
+
+            // Execute the pipeline below smoothly by continuing execution
+        }
+    }
+    // 2. 🔄 SECOND: Compute the active request pointer payload variable BEFORE testing text properties!
+    const activeMessage = update.message ?? message;
+
+    // 3. 🔄 THIRD: Run the text verification check against the computed active message pointer, NOT the legacy root reference!
+    if (!activeMessage?.text) {
+        console.log(`[Bot][${tenant.companyName}] No text in active request payload, skipping AI flow.`);
+        return;
+    }
+    const userText: string = activeMessage.text;
+    const userName: string = activeMessage.from?.username ?? activeMessage.from?.first_name ?? "user";
+
+    console.log(`[Bot][${tenant.companyName}] Processing incoming string payload: "${userText}"`);
+
+
+    // ─── 2. ⚡ HIGH-PERFORMANCE INTENT DE-DUPLICATION SHORTCUT BPASS ───
+    let intentResult;
+
+    // ✅ LOCAL DETERMINISTIC CHECK: If the request text matches our system tokens, 
+    // bypass the Vercel AI Gateway completely, saving your RPM quota balance!
+    if (userText === "recommendation") {
+        console.log(`[Shortcut Router] Bypassing AI Intent Router for system recommendation token.`);
+        intentResult = {
+            intent: "recommendation" as const,
+            confidence: 1.0,
+            language: (activeBuyerProfile?.preferredLanguage || 'en') as 'am' | 'en',
+            params: { category: activeBuyerProfile?.coreNeed || "" }
+        };
+    } else {
+        // Run normal AI gateway evaluation only for free-form user statements
+        try {
+            intentResult = await detectIntent(userText, tenant);
+        } catch (err) {
+            console.error(`[Bot][${tenant.companyName}] Intent detection error:`, err);
+            intentResult = { intent: "unknown" as const, confidence: 0, language: 'en' as const, params: undefined };
         }
     }
 
-    if (!message?.text) {
-        console.log(`[Bot][${tenant.companyName}] No text in update, skipping AI flow.`);
-        return;
-    }
-    const userText: string = message.text;
-    const userName: string = message.from?.username ?? message.from?.first_name ?? "user";
-
-    console.log(`[Bot][${tenant.companyName}] Message from ${userName}: "${userText}"`);
-
-    // 1. Intent & Language Detection
-    let intentResult;
-    try {
-        intentResult = await detectIntent(userText, tenant);
-    } catch (err) {
-        console.error(`[Bot][${tenant.companyName}] Intent detection error:`, err);
-        intentResult = { intent: "unknown" as const, confidence: 0, language: 'en' as const, params: undefined };
-    }
 
     const intent = intentResult.intent as string;
     const userLanguage = intentResult.language || 'en';
 
-    // ─── STEP 3: RUN THE ADAPTIVE ADAPTION PIPELINE (SHADOW AI + SCORING) ───
-    let activeBuyerProfile = existingBuyer;
-    try {
-        activeBuyerProfile = await processQualification(telegramId, intentResult, userText, tenantClient, tenant, existingBuyer);
-    } catch (err) {
-        console.error(`[Bot][${tenant.companyName}] Qualification workflow exception skipped:`, err);
+    // ─── 3. RUN ADAPTIVE QUALIFICATION PIPELINE (SHADOW AI) ───
+    // ─── INSIDE STEP 3 IN route.ts ───
+    if (userText !== "recommendation") {
+        try {
+            activeBuyerProfile = await processQualification(telegramId, intentResult, userText, tenantClient, tenant, existingBuyer);
+
+            // 🟢 AUTO-POPULATE HOOK: If shadow extraction is blank but intent isolated a valid category,
+            // we implicitly save it to clear profile gaps and fuel your recommendation tool parameters!
+            if ((!activeBuyerProfile?.coreNeed || activeBuyerProfile.coreNeed === "") && intentResult.params?.category) {
+                console.log(`[Data Engine] Auto-patching empty coreNeed with isolated intent category: ${intentResult.params.category}`);
+                activeBuyerProfile = await updateBuyerProfile(telegramId, tenantClient, {
+                    coreNeed: intentResult.params.category
+                });
+            }
+        } catch (err) {
+            console.error(`[Bot][${tenant.companyName}] Shadow parsing skipped:`, err);
+        }
+    } else {
+        activeBuyerProfile = existingBuyer;
     }
-    // ─── STEP 4: SMART FRICTION LOOP INTERCEPTOR (INTERACTIVE BUTTON LAYER) ───
-    if (intent === "order" || intent === "qualification") {
-        if (!activeBuyerProfile?.budgetRange || activeBuyerProfile.budgetRange === "") {
-            console.log(`[UX Interceptor][${tenant.companyName}] Budget parameter missing. Serving Inline Keyboard.`);
-            const kb = getMissingParameterKeyboard('budgetRange', userLanguage);
+
+
+    // ─── 4. HIGH-CONVERSION RECOMMENDATION INTERCEPTOR GATEWAYS ───
+    if (intent === "recommendation" || intent === "qualification") {
+        const currentCategory = intentResult.params?.category || activeBuyerProfile?.coreNeed || "";
+        const adaptiveRule = await getAdaptiveQualificationRule(tenantClient, currentCategory, intent);
+
+        let checkBudget = forcedBudgetOverride !== undefined ? forcedBudgetOverride : (activeBuyerProfile?.budgetRange || "");
+        if (checkBudget === "trigger_recommendation") checkBudget = "";
+
+        const effectiveBudget = checkBudget;
+        const effectiveTimeline = forcedTimelineOverride !== undefined ? forcedTimelineOverride : (activeBuyerProfile?.timeline || "");
+
+        console.log(`[DIAGNOSTIC 7] Interceptor Verification -> Budget: "${effectiveBudget}", Timeline: "${effectiveTimeline}"`);
+
+        if (!effectiveBudget || effectiveBudget === "") {
+            console.log(`[UX Interceptor] Budget criteria missing. Rendering budget panel.`);
+            const kb = getMissingParameterKeyboard('budgetRange', userLanguage, adaptiveRule);
             await sendFormattedMessage(tenant.telegramBotToken, chatId, kb.text, "HTML", kb.replyMarkup);
             return;
         }
-        if (!activeBuyerProfile?.timeline || activeBuyerProfile.timeline === "") {
-            console.log(`[UX Interceptor][${tenant.companyName}] Timeline parameter missing. Serving Inline Keyboard.`);
-            const kb = getMissingParameterKeyboard('timeline', userLanguage);
+
+        if (!effectiveTimeline || effectiveTimeline === "") {
+            console.log(`[UX Interceptor] Timeline criteria missing. Rendering timeline panel.`);
+            const kb = getMissingParameterKeyboard('timeline', userLanguage, adaptiveRule);
             await sendFormattedMessage(tenant.telegramBotToken, chatId, kb.text, "HTML", kb.replyMarkup);
             return;
         }
     }
-    // ─── STEP 5: ASSEMBLING INTEGRATED PROMPT CONTEXT PAYLOAD ───
+
+    // ─── 5. ASSEMBLING INTEGRATED PROMPT CONTEXT PAYLOAD ───
     let sanityContext = "";
     let prompt = "";
+    let activeReplyMarkup: any = null;
+    // 🔄 CONCURRENCY SAFEGUARD OVERRIDE: Update the active buyer profile properties 
+    // in-memory using your local tracking metrics variables before compiling prompt states.
+    // This entirely clears out any remote edge database transaction latency gaps.
+    if (activeBuyerProfile) {
+        activeBuyerProfile = {
+            ...activeBuyerProfile,
+            budgetRange: forcedBudgetOverride !== undefined ? forcedBudgetOverride : (activeBuyerProfile.budgetRange || ""),
+            timeline: forcedTimelineOverride !== undefined ? forcedTimelineOverride : (activeBuyerProfile.timeline || "")
+        };
+    }
+
     const ctx = {
         userName,
         userMessage: userText,
@@ -261,12 +435,42 @@ async function processUpdate(
         userLanguage,
         buyerProfile: activeBuyerProfile // Pass scores directly into prompt generation rules
     };
+    // Initialize custom variable tracking slots for active reply markup buttons layer injection
+
 
     try {
-        if (intent === "product_browse") {
+        if (intent === "recommendation") {
+            // 🔄 HIGH PERFORMANCE TOOL PRE-FEED: Since all data metrics are populated,
+            // call your custom queries utility to feed the initial matching results directly into context tokens.
+
+            const bounds = getBudgetBounds(activeBuyerProfile.budgetRange);
+            // 🔄 FIXED PARAMETER HOOKS: Clean the category string before pulling matching context data
+            // 🔄 FIXED: Extract the raw category parameter and strip out text noise like "products"
+            const rawCat = intentResult.params?.category || activeBuyerProfile?.coreNeed || "";
+            const targetCat = cleanCategoryKeyword(rawCat);
+            console.log(`[Context Engine] Pre-fetching recommendations for Cat: "${targetCat}" between ${bounds.min} - ${bounds.max}`);
+            const matches = await getProductRecommendations(tenantClient, targetCat, bounds.min, bounds.max);
+
+            sanityContext = matches.length > 0 ? JSON.stringify(matches) : "No specific price-matched items found.";
+            prompt = buildRecommendationPrompt({ ...ctx, sanityContext });
+
+        }
+        else if (intent === "product_browse") {
             const products = await getProductList(tenantClient, intentResult.params?.category);
             sanityContext = products.length > 0 ? JSON.stringify(products) : "No items found in this category.";
             prompt = buildSalesPrompt({ ...ctx, sanityContext });
+            // ─── 🟢 FIXED: GENERATE THE DYNAMIC CTA INTERACTIVE HOOK BUTTON INLINE LAYER ───
+            activeReplyMarkup = {
+                inline_keyboard: [
+                    [
+                        {
+                            text: userLanguage === 'am' ? "🤖 ለእኔ የሚሆን ምርጫ አሳይ" : "🤖 Get Personalized Recommendation",
+                            callback_data: "recommend_init" // Clicking maps natively onto your split interceptors
+                        }
+                    ]
+                ]
+            };
+
         } else if (intent === "product_detail") {
             let product = null;
             if (intentResult.params?.slug) {
@@ -313,13 +517,7 @@ async function processUpdate(
             : "\n\nCRITICAL LANGUAGE POLICY: The user is speaking English. Respond entirely in clear, friendly English.";
 
         const result = await generateText({
-            /*  // 🔄 WRAPPED WITH FALLBACK: Protects your account from 429 quota exhaustion 
-             model: fallback([
-                 google("gemini-1.5-flash"),
-                 google("gemini-2.5-flash"),
-                 google("gemini-2.5-flash-lite")
-             ]), */
-            model: google("google/gemini-2.5-flash-lite"),
+            model: gateway('google/gemini-2.5-flash'),
             system: `${buildSystemPrompt(tenant)}${languageConstraint}`, // Forces runtime language adherence
             prompt,
             tools,
@@ -330,10 +528,8 @@ async function processUpdate(
                 // Additionally, you can specify provider order
                 gateway: {
                     order: ['google'], // Only use Google's production endpoint
+                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
                 },
-                /*  gateway: {
-                     models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
-                 }, */
                 maxSteps: 5,
             } as any,
 
@@ -378,7 +574,7 @@ async function processUpdate(
 
     try {
         // Dispatched exclusively with HTML parse modes
-        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "HTML");
+        await sendFormattedMessage(tenant.telegramBotToken, chatId, replyText, "HTML", activeReplyMarkup);
         console.log(`[Bot][${tenant.companyName}] Reply sent successfully to Telegram endpoints.`);
     } catch (err: any) {
         console.error(`[Bot][${tenant.companyName}] Fatal transport exception:`, err);

@@ -56,16 +56,7 @@ export default defineType({
             name: 'budgetRange',
             title: 'Budget Range (ETB)',
             type: 'string',
-            options: {
-                list: [
-                    { title: 'Under 50k', value: 'under_50k' },
-                    { title: '50k - 100k', value: '50k_100k' },
-                    { title: '100k - 200k', value: '100k_200k' },
-                    { title: '200k - 500k', value: '200k_500k' },
-                    { title: '500k - 1M', value: '500k_1M' },
-                    { title: 'Over 1M', value: 'over_1M' },
-                ],
-            },
+
 
         },
         // Inside your Sanity Studio schemas configuration file for 'buyer':
@@ -73,13 +64,7 @@ export default defineType({
             name: 'timeline',
             title: 'Purchase Timeline',
             type: 'string',
-            options: {
-                list: [
-                    { title: 'Immediate / Urgent', value: 'immediate' },
-                    { title: 'Within 30 Days', value: '30_days' },
-                    { title: 'Exploring / Sometime', value: 'exploring' },
-                ],
-            },
+
         },
 
         {

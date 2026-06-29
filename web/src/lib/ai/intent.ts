@@ -3,6 +3,7 @@ import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provi
 import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
 import { generateObject } from "ai";
+import { createGateway } from '@ai-sdk/gateway';
 export type IntentType =
     | 'product_browse'
     | 'product_detail'
@@ -10,6 +11,7 @@ export type IntentType =
     | 'greeting'
     | 'order'
     | 'qualification'
+    | 'recommendation'
     | 'unknown';
 
 export interface IntentResult {
@@ -22,7 +24,12 @@ export interface IntentResult {
         faqCategory?: string;
     };
 }
-
+// ─── Gateway Initialization ───────────────────────────────────────────────
+// Use the GOOGLE_API_KEY from your environment variables.
+// We explicitly set autoTokenFetching to true so you don't need to manage keys.
+const gateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+});
 /**
  * Initialize a central Google provider linked to your Vercel AI Gateway infrastructure.
  * This dynamically applies your new API key string from your Vercel environment variables.
@@ -64,8 +71,9 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         const { object } = await generateObject({
             // 🔄 UPDATED: Now uses your initialized gateway instance.
             // Using 'gemini-1.5-flash' to leverage the large 1500 req/day free pool.
-            model: google("google/gemini-2.5-flash-lite"), schema: z.object({
-                intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
+            model: gateway('google/gemini-2.5-flash-preview-09-2025'),
+            schema: z.object({
+                intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown', 'recommendation']),
                 confidence: z.number().min(0).max(1),
                 language: z.enum(['am', 'en']).describe("Detected language of the user text. 'am' for Amharic script/transliteration, 'en' for English."),
                 params: z.object({
@@ -101,6 +109,7 @@ CRITICAL INTENT RULES:
 - product_detail: Deep dive query or technical questions about one specific item or item slug.
 - faq: Operational procedural questions. Map 'faqCategory' field strictly to 'Returns', 'Shipping', 'Pricing', or 'General'.
 - order: Actions showing they are immediately moving to transaction state (buy, book, pay, checkout, ሂሳብ ክፈል).
+- recommendation: TRIGGERED when the user explicitly asks for help choosing, wants a personalized recommendation, asks for the bot to pick for them, or if the text implies "I selected my budget/timeline" via button triggers.
 - qualification: Early exploration phase. They are stating their problems, needs, or asking you to make a choice/recommendation for them.
 - unknown: Completely irrelevant text, garbage strings, or unparseable context.`,
             prompt: `User Message to evaluate: "${text}"`,

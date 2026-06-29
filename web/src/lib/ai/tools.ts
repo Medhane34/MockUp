@@ -3,7 +3,32 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { SanityClient } from "next-sanity";
 import type { TenantContext } from "@/types/tenant";
-import { getProductList, getProductDetails, getFAQs } from "@/lib/sanity/queries";
+import { getProductList, getProductDetails, getFAQs, getProductRecommendations } from "@/lib/sanity/queries";
+
+/**
+ * Helper utility to convert conversational budget keys into strict mathematical pricing tiers.
+ * Maps your Sanity Studio values explicitly to numerical search limits.
+ */
+function parsePriceRange(budgetRange?: string): { min: number; max: number } {
+    const cleanRange = budgetRange?.toLowerCase().trim() || "";
+
+    switch (cleanRange) {
+        case 'under_50k':
+            return { min: 0, max: 50000 };
+        case '50k_100k':
+            return { min: 50000, max: 100000 };
+        case '100k_200k':
+            return { min: 100000, max: 200000 };
+        case '200k_500k':
+            return { min: 200000, max: 500000 };
+        case '500k_1m':
+            return { min: 500000, max: 1000000 };
+        case 'over_1m':
+            return { min: 1000000, max: Infinity };
+        default:
+            return { min: 0, max: Infinity };
+    }
+}
 
 /**
  * Builds tenant-aware Vercel AI SDK tools.
@@ -58,6 +83,23 @@ export function buildSanityTools(tenantClient: SanityClient, tenant: TenantConte
                 const faqs = await getFAQs(tenantClient, category);
                 // 🔄 CRITICAL FIX: Ensure predictable text context string outputs
                 return JSON.stringify(faqs || []);
+            },
+        }),
+        // ─── 🟢 NEW HIGH-EFFICIENCY RECOMMENDATION TOOL ───
+        getRecommendations: tool({
+            description: `Get a filtered list of highly recommended ${itemLabel} matched exactly to a user's specific price range criteria and target category context.`,
+            inputSchema: z.object({
+                category: z.string().optional().describe("The user's targeted category context if identified."),
+                budgetRange: z.string().optional().describe("The user's structural budget string identifier currently in their profile context."),
+            }),
+            execute: async ({ category, budgetRange }) => {
+                console.log(`[Tool: getRecommendations] Running parameter filter for Category: ${category || 'All'}, Budget string: ${budgetRange}`);
+
+                // Translate conversational dropdown tokens into strict numeric bounds
+                const bounds = parsePriceRange(budgetRange);
+
+                const matches = await getProductRecommendations(tenantClient, category, bounds.min, bounds.max);
+                return JSON.stringify(matches || []);
             },
         }),
     };

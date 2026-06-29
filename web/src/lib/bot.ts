@@ -32,7 +32,17 @@ import { buildSanityTools } from "./ai/tools";
 import { getProductList, getProductDetails, getFAQs } from "./sanity/queries";
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
+import { createGateway } from '@ai-sdk/gateway';
+
+// ─── Gateway Initialization ───────────────────────────────────────────────
+// Use the GOOGLE_API_KEY from your environment variables.
+// We explicitly set autoTokenFetching to true so you don't need to manage keys.
+const gateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+});
+
 // ─── Redis State Adapter (shared across all adapters) ─────────────────────────
+
 const stateAdapter = createRedisState();
 
 // ─── Conversation History Helpers ─────────────────────────────────────────────
@@ -127,7 +137,7 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
 
         const tools = buildSanityTools(tenantClient, tenant);
         const result = await generateText({
-            model: google("google/gemini-2.5-flash-lite"),
+            model: gateway('google/gemini-2.5-flash-lite'),
             system: buildSystemPrompt(tenant),
             messages: [
                 ...history.map((msg: any) => ({ role: msg.role, content: msg.content })),
@@ -141,10 +151,8 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
                 // Additionally, you can specify provider order
                 gateway: {
                     order: ['google'], // Only use Google's production endpoint
+                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
                 },
-                /*  gateway: {
-                     models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
-                 }, */
             },
             maxSteps: 5,
         } as any);

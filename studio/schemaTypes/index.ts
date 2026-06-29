@@ -5,6 +5,7 @@ import product from './AiAgent/product';
 import faq from './AiAgent/faq';
 import buyer from './AiAgent/buyer';
 import tenant from './AiAgent/tenant';
+import qualificationRules from './AiAgent/qualificationRules';
 export const schemaTypes = [
     pushSubscription,
     notificationCampaign,
@@ -12,5 +13,6 @@ export const schemaTypes = [
     product,
     faq,
     buyer,
-    tenant
+    tenant,
+    qualificationRules
 ];

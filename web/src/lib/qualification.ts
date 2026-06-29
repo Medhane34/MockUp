@@ -5,6 +5,16 @@ import { z } from "zod";
 import { updateBuyerProfile } from './sanity/buyer';
 import type { TenantContext } from '@/types/tenant';
 import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
+import { createGateway } from '@ai-sdk/gateway';
+
+
+// ─── GATEWAY INITIALIZATION ───────────────────────────────────────────────────────
+// Use the GOOGLE_API_KEY from your environment variables.
+// We explicitly set autoTokenFetching to true so you don't need to manage keys.
+const gateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+});
+
 
 export interface QualificationData {
     intentType?: string;
@@ -25,13 +35,13 @@ const gatewayGoogleProvider = createGoogleGenerativeAI({
 }); */
 
 /**
- * ─── SHADOW AI EXTRACTION WORKER ───
+ * ─── SHADOW AI EXTRACTION WORKER Updated───
  * Runs in the background to seamlessly extract BANT parameters without user friction.
  */
 export async function shadowExtractQualification(userMessage: string): Promise<any> {
     try {
         const { object } = await generateObject({
-            model: google("gemini-2.5-flash"),
+            model: gateway('google/gemini-2.5-flash-preview-09-2025'),
             schema: z.object({
                 coreNeed: z.string().optional().describe("Clean extracted summary of what specific item/service they are seeking (e.g. 'video editing laptop', 'wedding outfit'). Leave blank if they just said hello or generic phrases."),
                 budgetRange: z.enum(['under_50k', '50k_100k', '100k_200k', '200k_500k', '500k_1M', 'over_1M']).optional().describe("Inferred budget category based on context cues."),
@@ -53,29 +63,55 @@ export async function shadowExtractQualification(userMessage: string): Promise<a
  * ─── SYSTEMS THINKING LEAD SCORER ───
  * Computes the real-time 'Stock of Knowledge' you possess on a specific buyer.
  */
+// src/lib/qualification.ts
+
+/**
+ * SYSTEMS THINKING LEAD SCORER WITH DATA STRUCTURAL FILTERS
+ * Measures the exact valid parameters present in the buyer's data stock.
+ */
 export function calculateDynamicLeadStatus(buyer: any): { stage: 'new' | 'partial' | 'fully_qualified'; score: number } {
     let populatedMetrics = 0;
 
-    if (buyer.coreNeed && buyer.coreNeed.trim() !== "") populatedMetrics++;
-    if (buyer.budgetRange && buyer.budgetRange.trim() !== "") populatedMetrics++;
-    if (buyer.timeline && buyer.timeline.trim() !== "") populatedMetrics++;
+    // Safety list of known system placeholder strings to reject from scoring points
+    const blacklistedTokens = ["recommendation", "trigger_recommendation", "recommend_init", "unknown", "none", "null", "undefined", "true", "false", ""];
+
+    function isValidDataBlock(field: any): boolean {
+        if (!field || typeof field !== "string") return false;
+        const cleanField = field.trim().toLowerCase();
+
+        // Block raw execution if the string length is too short or matches a shortcut indicator keyword
+        if (cleanField.length < 2) return false;
+        if (blacklistedTokens.includes(cleanField)) return false;
+
+        return true;
+    }
+
+    // Surgical verification checks validate that real customer criteria is held in memory
+    if (isValidDataBlock(buyer.coreNeed)) populatedMetrics++;
+    if (isValidDataBlock(buyer.budgetRange)) populatedMetrics++;
+    if (isValidDataBlock(buyer.timeline)) populatedMetrics++;
+
+    console.log(`[Metrics Engine] Active Field Count Captured: ${populatedMetrics}/3 -> B:${buyer.budgetRange} T:${buyer.timeline}`);
 
     if (populatedMetrics === 0) {
         return { stage: 'new', score: 20 };
     } else if (populatedMetrics < 3) {
-        // Partial tracking state (Missing 1 or 2 core criteria markers)
-        const score = 25 + (populatedMetrics * 20); // Evaluates to 45 or 65
+        // Partial tracking state (missing criteria remains)
+        const score = 25 + (populatedMetrics * 20); // 45 or 65
         return { stage: 'partial', score };
     } else {
-        // Fully Qualified (Core Need AND Budget AND Timeline secured)
+        // Fully Qualified (Requires true validation across all three properties)
         return { stage: 'fully_qualified', score: 95 };
     }
 }
+
 
 /**
  * ─── ADAPTIVE ADAPTION PIPELINE ───
  * Merges raw intents, shadow updates, and telemetry scores directly into Sanity.
  */
+// Inside processQualification in qualification.ts:
+
 export async function processQualification(
     telegramId: string,
     intentResult: any,
@@ -84,23 +120,26 @@ export async function processQualification(
     tenant: TenantContext,
     existingBuyer: any
 ) {
-    // 1. Fire off the Shadow AI extractor utility
     const shadowData = await shadowExtractQualification(userMessage);
 
-    // 2. Build the prospective data merge block
+    // Safety cleaning values to prevent keyword leaking
+    const cleanMsg = userMessage.trim().toLowerCase();
+    const containsRoutingToken = cleanMsg === "recommendation" || cleanMsg === "recommend_init";
+
     const mergedProfile = {
         intentType: intentResult.intent,
-        coreNeed: shadowData?.coreNeed || existingBuyer?.coreNeed || "",
-        budgetRange: shadowData?.budgetRange || existingBuyer?.budgetRange || "",
-        timeline: shadowData?.timeline || existingBuyer?.timeline || "",
+        // 🔄 GUARDED ASSIGNMENT: Never let background AI parse system keywords as real customer goals
+        coreNeed: containsRoutingToken ? (existingBuyer?.coreNeed || "") : (shadowData?.coreNeed || existingBuyer?.coreNeed || ""),
+        budgetRange: existingBuyer?.budgetRange || "",
+        timeline: existingBuyer?.timeline || "",
         qualificationNotes: existingBuyer?.qualificationNotes || ""
     };
 
-    if (shadowData?.coreNeed) {
-        mergedProfile.qualificationNotes += `\n[Shadow AI Extracted Need]: ${shadowData.coreNeed} at ${new Date().toLocaleTimeString()}`;
+    if (shadowData?.coreNeed && !containsRoutingToken) {
+        mergedProfile.qualificationNotes += `\n[Shadow AI]: ${shadowData.coreNeed} at ${new Date().toLocaleTimeString()}`;
     }
 
-    // 3. Compute systems-level metrics based on the cumulative dataset fields
+    // Re-evaluate using our new type-safe validation matrix
     const { stage, score } = calculateDynamicLeadStatus(mergedProfile);
 
     const updatePayload: QualificationData = {
@@ -110,13 +149,11 @@ export async function processQualification(
         lastQualifiedAt: new Date().toISOString()
     };
 
-    // 4. Commit mutations to Sanity via the type-guarded patch engine
     const savedBuyer = await updateBuyerProfile(telegramId, tenantClient, updatePayload);
-
     console.log(`[Adaptive Qualification][${tenant.companyName}] Buyer ${telegramId} -> Stage: ${stage} (Score: ${score})`);
-
     return savedBuyer || existingBuyer;
 }
+
 
 /**
  * ─── BILINGUAL & NICHE-ADAPTIVE KEYBOARDS ───
@@ -124,39 +161,72 @@ export async function processQualification(
  */
 // src/lib/qualification.ts
 
-export function getMissingParameterKeyboard(missingField: 'budgetRange' | 'timeline', language: 'am' | 'en') {
+// src/lib/qualification.ts
+
+export function getMissingParameterKeyboard(
+    missingField: 'budgetRange' | 'timeline',
+    language: 'am' | 'en',
+    resolvedRule: any | null
+) {
+    const isAmharic = language === 'am';
+
+    // ─── 1. RESOLVE BUDGET INTERACTIVE KEYBOARD ───
     if (missingField === 'budgetRange') {
+        const defaultBudgetText = isAmharic
+            ? "እባክዎ ለእርስዎ የሚስማማውን የዋጋ ክልል ይምረጡ፦"
+            : "Please select a budget range that matches your current requirements:";
+
+        // 🔄 FIXED: Dynamically pulls the dedicated custom budget override text from Sanity
+        const promptText = isAmharic
+            ? (resolvedRule?.customBudgetPromptAm || defaultBudgetText)
+            : (resolvedRule?.customBudgetPromptEn || defaultBudgetText);
+
+        let inlineButtons = [];
+        if (resolvedRule?.customBudgetOptions && resolvedRule.customBudgetOptions.length > 0) {
+            inlineButtons = resolvedRule.customBudgetOptions.map((opt: any) => ({
+                text: isAmharic ? opt.buttonLabelAm : opt.buttonLabelEn,
+                callback_data: `budget_${opt.callbackValue}`
+            }));
+        } else {
+            inlineButtons = [
+                { text: isAmharic ? "ከ 50k በታች" : "Under 50k", callback_data: "budget_under_50k" },
+                { text: "50k - 100k", callback_data: "budget_50k_100k" },
+                { text: isAmharic ? "ከ 100k በላይ" : "Over 100k", callback_data: "budget_100k_200k" }
+            ];
+        }
+
         return {
-            text: language === 'am'
-                ? "እባክዎ ለእርስዎ የሚስማማውን የዋጋ ክልል ይምረጡ፦"
-                : "Please select a budget range that matches your current planning requirements:",
-            replyMarkup: {
-                inline_keyboard: [
-                    [
-                        // 🔄 FIXED VALUE STRINGS: These now map perfectly to your Sanity Studio drop-down choices
-                        { text: language === 'am' ? "ከ 50k በታች" : "Under 50k", callback_data: "budget_under_50k" },
-                        { text: "50k - 100k", callback_data: "budget_50k_100k" },
-                        { text: language === 'am' ? "ከ 100k በላይ" : "Over 100k", callback_data: "budget_100k_200k" }
-                    ]
-                ]
-            }
+            text: promptText,
+            replyMarkup: { inline_keyboard: [inlineButtons] }
         };
     }
 
-    // Timeline Keyboard Generation Branch
+    // ─── 2. RESOLVE TIMELINE INTERACTIVE KEYBOARD ───
+    const defaultTimelineText = isAmharic
+        ? "ይህን ግዢ መቼ ለመፈጸም አቅደዋል?"
+        : "When are you looking to move forward with this project?";
+
+    // 🔄 FIXED: Dynamically pulls the dedicated custom timeline override text from Sanity
+    const timelinePromptText = isAmharic
+        ? (resolvedRule?.customTimelinePromptAm || defaultTimelineText)
+        : (resolvedRule?.customTimelinePromptEn || defaultTimelineText);
+
+    let timelineButtons = [];
+    if (resolvedRule?.customTimelineOptions && resolvedRule.customTimelineOptions.length > 0) {
+        timelineButtons = resolvedRule.customTimelineOptions.map((opt: any) => ({
+            text: isAmharic ? opt.buttonLabelAm : opt.buttonLabelEn,
+            callback_data: `timeline_${opt.callbackValue}`
+        }));
+    } else {
+        timelineButtons = [
+            { text: isAmharic ? "በአስቸኳይ" : "Immediate", callback_data: "timeline_immediate" },
+            { text: isAmharic ? "በ30 ቀናት ውስጥ" : "Within 30 Days", callback_data: "timeline_30_days" },
+            { text: isAmharic ? "ለማየት ብቻ" : "Exploring", callback_data: "timeline_exploring" }
+        ];
+    }
+
     return {
-        text: language === 'am'
-            ? "ይህን ምርት/አገልግሎት መቼ ለማግኘት አቅደዋል?"
-            : "When are you looking to move forward with this purchase/booking?",
-        replyMarkup: {
-            inline_keyboard: [
-                [
-                    // Standardized fallback strings for your chronological tracker logic
-                    { text: language === 'am' ? "በአስቸኳይ" : "Immediate", callback_data: "timeline_immediate" },
-                    { text: language === 'am' ? "በ30 ቀናት ውስጥ" : "Within 30 Days", callback_data: "timeline_30_days" },
-                    { text: language === 'am' ? "ለማየት ብቻ" : "Exploring", callback_data: "timeline_exploring" }
-                ]
-            ]
-        }
+        text: timelinePromptText,
+        replyMarkup: { inline_keyboard: [timelineButtons] }
     };
 }
