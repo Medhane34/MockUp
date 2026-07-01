@@ -32,11 +32,12 @@ export default defineType({
             validation: (Rule) => Rule.required(),
         }),
         defineField({
-            name: 'targetValue',
-            title: 'Target Trigger Value Match',
-            type: 'string',
-            description: 'Enter the exact matching string value name (e.g., if trigger is Category, write "travel" or "electronics". If Intent, write "product_browse"). Leave blank if Global.',
-            hidden: ({ document }) => document?.triggerType === 'global',
+            name: 'targetCategoryReference',
+            title: 'Target Reference Product Category',
+            type: 'reference',
+            description: 'Select the exact live category document that activates this rule setup block.',
+            to: [{ type: 'category' }], // Restricts lookup strictly to your new category document items
+            hidden: ({ document }) => document?.triggerType !== 'category',
         }),
         defineField({
             name: 'priority',
@@ -128,6 +129,27 @@ export default defineType({
             group: "am",
             type: 'text',
             description: 'Timeline prompt text in Amharic script (e.g., "ይህን ማሽን መቼ ለመረከብ አቅደዋል?").',
+        }),
+        // Add these fields inside the fields array of your qualificationRules schema file
+
+        // ─── CUSTOM DISQUALIFICATION PARAMETERS (CATEGORY LEVEL) ──────────────────
+        defineField({
+            name: 'disqualificationBudgetKey',
+            title: 'Disqualification Budget Key Threshold',
+            type: 'string',
+            description: 'Enter the exact callback value string that triggers automated disqualification for this category (e.g., "under_50k"). If a user selects this option, they are instantly flagged as disqualified.',
+        }),
+        defineField({
+            name: 'customDisqualifiedPromptEn',
+            title: 'Polite Disqualification Text (English)',
+            type: 'text',
+            description: 'The fallback copy the chatbot says to a disqualified user in English before stopping the sales tracking tunnel.',
+        }),
+        defineField({
+            name: 'customDisqualifiedPromptAm',
+            title: 'Polite Disqualification Text (Amharic - ፊደል)',
+            type: 'text',
+            description: 'The fallback copy the chatbot says to a disqualified user in Amharic script.',
         }),
 
 

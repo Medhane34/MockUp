@@ -15,6 +15,9 @@ export interface QualificationRuleResponse {
     customBudgetPromptAm?: string;
     customTimelinePromptEn?: string;
     customTimelinePromptAm?: string;
+    disqualificationBudgetKey?: string;
+    customDisqualifiedPromptEn?: string;
+    customDisqualifiedPromptAm?: string;
     customBudgetOptions?: CustomRuleButton[];
     customTimelineOptions?: CustomRuleButton[];
 }
@@ -35,36 +38,47 @@ export async function getAdaptiveQualificationRule(
 
     // Optimized GROQ Query evaluating absolute priority across multi-trigger matching profiles
     // Inside getAdaptiveQualificationRule query inside rules.ts:
-
+    // Performs an inner join mapping targetCategoryReference->slug.current matching the turn context string
     const query = `*[_type == "qualificationRules" && (
-    (triggerType == "category" && targetValue == $category) ||
-    (triggerType == "intent" && targetValue == $intent) ||
-    (triggerType == "global")
-)] | order(priority desc)[0]{
-    ruleName,
-    triggerType,
-    targetValue,
-    customBudgetPromptEn,
-    customBudgetPromptAm,
-    customTimelinePromptEn,
-    customTimelinePromptAm,
-    customBudgetOptions,
-    customTimelineOptions
-}`;
+        (triggerType == "category" && targetCategoryReference->slug.current == $category) ||
+        (triggerType == "intent" && targetValue == $intent) ||
+        (triggerType == "global")
+    )] | order(priority desc)[0]{
+        ruleName,
+        triggerType,
+        targetValue,
+        customBudgetPromptEn,
+        customBudgetPromptAm,
+        customTimelinePromptEn,
+        customTimelinePromptAm,
+        disqualificationBudgetKey,
+        customDisqualifiedPromptEn,
+        customDisqualifiedPromptAm,
+        customBudgetOptions,
+        customTimelineOptions
+    }`;
 
 
     try {
+        const cleanCategory = category ? category.trim().toLowerCase() : "";
+        const cleanIntent = intent ? intent.trim() : "";
+
+        console.log(`[Rules Engine] Querying reference matrix for Cat: "${cleanCategory}", Intent: "${cleanIntent}"`);
+
         const activeRule = await tenantClient.fetch(query, {
-            category: category || "",
-            intent: intent || ""
+            category: cleanCategory,
+            intent: cleanIntent
         });
 
         if (activeRule) {
-            console.log(`[Rules Engine] Resolved active configuration: "${activeRule.ruleName}"`);
+            console.log(`[Rules Engine] Successfully resolved referenced ruleset document: "${activeRule.ruleName}"`);
+        } else {
+            console.log(`[Rules Engine] No rulesets found. Chatbot falling back to native code presets.`);
         }
+
         return activeRule || null;
     } catch (err) {
-        console.error("[Rules Engine] Failed to fetch dynamic configurations:", err);
+        console.error("[Rules Engine] Reference query lookup crash failed:", err);
         return null;
     }
 }

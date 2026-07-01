@@ -1,20 +1,9 @@
 // src/lib/qualification.ts
 import { generateObject } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGateway } from "@ai-sdk/gateway";
 import { z } from "zod";
 import { updateBuyerProfile } from './sanity/buyer';
 import type { TenantContext } from '@/types/tenant';
-import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
-import { createGateway } from '@ai-sdk/gateway';
-
-
-// ─── GATEWAY INITIALIZATION ───────────────────────────────────────────────────────
-// Use the GOOGLE_API_KEY from your environment variables.
-// We explicitly set autoTokenFetching to true so you don't need to manage keys.
-const gateway = createGateway({
-    apiKey: process.env.AI_GATEWAY_API_KEY,
-});
-
 
 export interface QualificationData {
     intentType?: string;
@@ -24,49 +13,50 @@ export interface QualificationData {
     interests?: string[];
     leadScore?: number;
     qualificationNotes?: string;
-    qualificationStage?: 'new' | 'partial' | 'fully_qualified' | string;
+    qualificationStage?: 'new' | 'partial' | 'fully_qualified' | 'disqualified' | 'lost' | string;
     lastQualifiedAt?: string;
 }
 
-/* // Initialize a standalone Google provider mapped specifically to your Vercel AI Gateway
-const gatewayGoogleProvider = createGoogleGenerativeAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    baseURL: "https://vercel.blog",
-}); */
+// Unified Vercel AI Gateway Controller Instance
+const vercelGateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+});
 
 /**
- * ─── SHADOW AI EXTRACTION WORKER Updated───
- * Runs in the background to seamlessly extract BANT parameters without user friction.
+ * ─── SHADOW AI EXTRACTION WORKER ───
  */
 export async function shadowExtractQualification(userMessage: string): Promise<any> {
     try {
         const { object } = await generateObject({
-            model: gateway('google/gemini-2.5-flash-preview-09-2025'),
+            model: vercelGateway('google/gemini-2.5-flash'), // Optimized stable gateway allocation
             schema: z.object({
-                coreNeed: z.string().optional().describe("Clean extracted summary of what specific item/service they are seeking (e.g. 'video editing laptop', 'wedding outfit'). Leave blank if they just said hello or generic phrases."),
-                budgetRange: z.enum(['under_50k', '50k_100k', '100k_200k', '200k_500k', '500k_1M', 'over_1M']).optional().describe("Inferred budget category based on context cues."),
-                timeline: z.enum(['immediate', '30_days', 'exploring']).optional().describe("Inferred buying urgency threshold."),
+                coreNeed: z.string().optional().describe("Clean extracted summary of what specific item/service they are seeking (e.g. 'video editing laptop', 'wedding outfit'). Leave blank if it's a generic greeting or chat text phrase."),
+                budgetRange: z.enum(['under_50k', '50k_100k', '100k_200k', '200k_500k', '500k_1M', 'over_1M']).optional().describe("Inferred budget category range value choice matching your schema specifications."),
+                timeline: z.enum(['immediate', '30_days', 'exploring']).optional().describe("Inferred buying urgency time preference threshold constraint."),
             }),
+            providerOptions: {
+                google: {
+                    useProduction: true, // Forces Vercel to route over Google v1, not v1beta
+                },
+                gateway: {
+                    order: ['google'],
+                    models: ['google/gemini-2.5-flash-preview-09-2025'],
+                },
+            },
             system: `You are an invisible background data extraction worker. 
-                     Analyze the message text and isolate buying parameters. 
-                     Do NOT guess fields or extrapolate; extract parameters ONLY if clear semantic data is present.`,
+                   Analyze the message text and isolate buying parameters. 
+                   Do NOT guess fields or extrapolate; extract parameters ONLY if clear semantic data is present.`,
             prompt: userMessage,
         });
         return object;
     } catch (err) {
-        console.error("[Shadow AI Extraction Error]", err);
+        console.error("[Vercel Gateway][Shadow Extraction Failed]", err);
         return null;
     }
 }
 
 /**
- * ─── SYSTEMS THINKING LEAD SCORER ───
- * Computes the real-time 'Stock of Knowledge' you possess on a specific buyer.
- */
-// src/lib/qualification.ts
-
-/**
- * SYSTEMS THINKING LEAD SCORER WITH DATA STRUCTURAL FILTERS
+ * ─── SYSTEMS THINKING LEAD SCORER WITH DATA STRUCTURAL FILTERS ───
  * Measures the exact valid parameters present in the buyer's data stock.
  */
 export function calculateDynamicLeadStatus(buyer: any): { stage: 'new' | 'partial' | 'fully_qualified'; score: number } {
@@ -79,14 +69,12 @@ export function calculateDynamicLeadStatus(buyer: any): { stage: 'new' | 'partia
         if (!field || typeof field !== "string") return false;
         const cleanField = field.trim().toLowerCase();
 
-        // Block raw execution if the string length is too short or matches a shortcut indicator keyword
         if (cleanField.length < 2) return false;
         if (blacklistedTokens.includes(cleanField)) return false;
 
         return true;
     }
 
-    // Surgical verification checks validate that real customer criteria is held in memory
     if (isValidDataBlock(buyer.coreNeed)) populatedMetrics++;
     if (isValidDataBlock(buyer.budgetRange)) populatedMetrics++;
     if (isValidDataBlock(buyer.timeline)) populatedMetrics++;
@@ -96,39 +84,47 @@ export function calculateDynamicLeadStatus(buyer: any): { stage: 'new' | 'partia
     if (populatedMetrics === 0) {
         return { stage: 'new', score: 20 };
     } else if (populatedMetrics < 3) {
-        // Partial tracking state (missing criteria remains)
         const score = 25 + (populatedMetrics * 20); // 45 or 65
         return { stage: 'partial', score };
     } else {
-        // Fully Qualified (Requires true validation across all three properties)
         return { stage: 'fully_qualified', score: 95 };
     }
 }
 
-
 /**
- * ─── ADAPTIVE ADAPTION PIPELINE ───
- * Merges raw intents, shadow updates, and telemetry scores directly into Sanity.
+ * ─── ADAPTIVE ADAPTION PIPELINE (WITH DISQUALIFICATION & LOST HANDLING) ───
  */
-// Inside processQualification in qualification.ts:
-
 export async function processQualification(
     telegramId: string,
     intentResult: any,
     userMessage: string,
     tenantClient: any,
     tenant: TenantContext,
-    existingBuyer: any
+    existingBuyer: any,
+    adaptiveRule: any | null // Added visibility of resolved rule for category threshold matching
 ) {
     const shadowData = await shadowExtractQualification(userMessage);
 
-    // Safety cleaning values to prevent keyword leaking
     const cleanMsg = userMessage.trim().toLowerCase();
     const containsRoutingToken = cleanMsg === "recommendation" || cleanMsg === "recommend_init";
 
+    // ─── LAYER A: TEMPORAL "LOST" TIMEOUT STATUS CHECK ───
+    let baselineBuyerState = existingBuyer?.qualificationStage || 'new';
+    if (existingBuyer?.lastInteraction && (baselineBuyerState === 'partial' || baselineBuyerState === 'fully_qualified')) {
+        const lastActiveTime = new Date(existingBuyer.lastInteraction).getTime();
+        const currentTime = new Date().getTime();
+
+        // 🎛️ 48 Hours Timeout Threshold (48 * 60 * 60 * 1000 ms)
+        const lostThresholdMs = 48 * 60 * 60 * 1000;
+
+        if (currentTime - lastActiveTime > lostThresholdMs) {
+            console.log(`[Lifecycle Engine] Lead timed out after 48 hours of silence. Shifting local stage copy to: lost`);
+            baselineBuyerState = 'lost';
+        }
+    }
+
     const mergedProfile = {
         intentType: intentResult.intent,
-        // 🔄 GUARDED ASSIGNMENT: Never let background AI parse system keywords as real customer goals
         coreNeed: containsRoutingToken ? (existingBuyer?.coreNeed || "") : (shadowData?.coreNeed || existingBuyer?.coreNeed || ""),
         budgetRange: existingBuyer?.budgetRange || "",
         timeline: existingBuyer?.timeline || "",
@@ -139,30 +135,49 @@ export async function processQualification(
         mergedProfile.qualificationNotes += `\n[Shadow AI]: ${shadowData.coreNeed} at ${new Date().toLocaleTimeString()}`;
     }
 
-    // Re-evaluate using our new type-safe validation matrix
+    // Inside processQualification in qualification.ts:
+
+    // ─── LAYER B: COMPUTE STANDARD LEAD SCORING ───
     const { stage, score } = calculateDynamicLeadStatus(mergedProfile);
+
+    // 🔄 FIXED CONFLICT HIERARCHY: We calculate the final state dynamically,
+    // preserving 'lost' and 'disqualified' states.
+    let finalStage = (baselineBuyerState === 'lost' || baselineBuyerState === 'disqualified') ? baselineBuyerState : stage;
+    let finalScore = score;
+
+    // ─── LAYER C: SAFE VERIFIED DISQUALIFICATION MATCHING ───
+    const effectiveBudget = (mergedProfile.budgetRange || "").trim().toLowerCase();
+    const ruleDisqualifyKey = (adaptiveRule?.disqualificationBudgetKey || "").trim().toLowerCase();
+
+    // If a strict match to the forbidden threshold occurs, we enforce an absolute hard override
+    if (
+        ruleDisqualifyKey !== "" &&
+        effectiveBudget !== "" &&
+        effectiveBudget !== "recommendation" &&
+        effectiveBudget === ruleDisqualifyKey
+    ) {
+        console.log(`[Lifecycle Engine] Hard Disqualification Match: Budget "${effectiveBudget}" == Threshold "${ruleDisqualifyKey}".`);
+
+        // ✅ THIS LOCKS THE VALUE: It ensures standard scores can never overwrite a disqualification
+        finalStage = 'disqualified';
+        finalScore = 0;
+    }
 
     const updatePayload: QualificationData = {
         ...mergedProfile,
-        leadScore: score,
-        qualificationStage: stage,
+        leadScore: finalScore,
+        qualificationStage: finalStage, // Writes "disqualified" safely to your Sanity project dataset
         lastQualifiedAt: new Date().toISOString()
     };
 
     const savedBuyer = await updateBuyerProfile(telegramId, tenantClient, updatePayload);
-    console.log(`[Adaptive Qualification][${tenant.companyName}] Buyer ${telegramId} -> Stage: ${stage} (Score: ${score})`);
     return savedBuyer || existingBuyer;
 }
 
 
 /**
  * ─── BILINGUAL & NICHE-ADAPTIVE KEYBOARDS ───
- * Renders fallback options matching your specific tenant's niche setup in both languages.
  */
-// src/lib/qualification.ts
-
-// src/lib/qualification.ts
-
 export function getMissingParameterKeyboard(
     missingField: 'budgetRange' | 'timeline',
     language: 'am' | 'en',
@@ -170,13 +185,11 @@ export function getMissingParameterKeyboard(
 ) {
     const isAmharic = language === 'am';
 
-    // ─── 1. RESOLVE BUDGET INTERACTIVE KEYBOARD ───
     if (missingField === 'budgetRange') {
         const defaultBudgetText = isAmharic
             ? "እባክዎ ለእርስዎ የሚስማማውን የዋጋ ክልል ይምረጡ፦"
             : "Please select a budget range that matches your current requirements:";
 
-        // 🔄 FIXED: Dynamically pulls the dedicated custom budget override text from Sanity
         const promptText = isAmharic
             ? (resolvedRule?.customBudgetPromptAm || defaultBudgetText)
             : (resolvedRule?.customBudgetPromptEn || defaultBudgetText);
@@ -201,12 +214,10 @@ export function getMissingParameterKeyboard(
         };
     }
 
-    // ─── 2. RESOLVE TIMELINE INTERACTIVE KEYBOARD ───
     const defaultTimelineText = isAmharic
         ? "ይህን ግዢ መቼ ለመፈጸም አቅደዋል?"
-        : "When are you looking to move forward with this project?";
+        : "When are you looking to move forward with this purchase?";
 
-    // 🔄 FIXED: Dynamically pulls the dedicated custom timeline override text from Sanity
     const timelinePromptText = isAmharic
         ? (resolvedRule?.customTimelinePromptAm || defaultTimelineText)
         : (resolvedRule?.customTimelinePromptEn || defaultTimelineText);

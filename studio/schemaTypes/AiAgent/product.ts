@@ -25,20 +25,17 @@ export default defineType({
             type: 'number',
             validation: (Rule) => Rule.required().min(0),
         }),
+        // Update the category field definition inside your product.ts schema file:
+
         defineField({
-            name: 'category',
-            title: 'Category',
-            type: 'string',
-            options: {
-                list: [
-                    { title: 'Electronics', value: 'electronics' },
-                    { title: 'Fashion', value: 'fashion' },
-                    { title: 'Home & Kitchen', value: 'home' },
-                    { title: 'Beauty', value: 'beauty' },
-                    { title: 'Agriculture', value: 'agriculture' },
-                ],
-            },
+            name: 'categoryRef',
+            title: 'Product Category Reference',
+            type: 'reference',
+            to: [{ type: 'category' }], // Relational target binding
+            description: 'Select the primary categorical group that this inventory item belongs to.',
+            validation: (Rule) => Rule.required(),
         }),
+
         defineField({
             name: 'description',
             title: 'Description',

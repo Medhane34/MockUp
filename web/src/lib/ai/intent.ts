@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
 import { generateObject } from "ai";
 import { createGateway } from '@ai-sdk/gateway';
+import { createTenantRedisClient } from "@/lib/upstash";
+
 export type IntentType =
     | 'product_browse'
     | 'product_detail'
@@ -65,7 +67,26 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         return structuralTrigger;
     }
 
-    console.log(`[Intent][${tenant.companyName}] Routing message to Vercel AI Gateway Router...`);
+    // Generate Redis cache key based on cleaned text query to prevent redundant runs
+    const cleanText = text.trim().toLowerCase();
+    const textHash = cleanText.length > 50
+        ? cleanText.substring(0, 50) + "_" + cleanText.length
+        : cleanText;
+    const cacheKey = `intent:${tenant.id}:${encodeURIComponent(textHash)}`;
+
+    try {
+        // 🔄 Use the dynamic tenant Redis client for isolation
+        const tenantRedis = createTenantRedisClient(tenant);
+        const cached = await tenantRedis.get<IntentResult>(cacheKey);
+        if (cached) {
+            console.log(`[Intent Cache][${tenant.companyName}] HIT for key: ${cacheKey}`);
+            return cached;
+        }
+    } catch (err) {
+        console.warn(`[Intent Cache] Get failed (non-blocking):`, err);
+    }
+
+    console.log(`[Intent][${tenant.companyName}] Cache MISS — Routing message to Vercel AI Gateway Router...`);
 
     try {
         const { object } = await generateObject({
@@ -117,12 +138,23 @@ CRITICAL INTENT RULES:
 
         console.log(`[Intent][${tenant.companyName}] AI Gateway classified: ${object.intent} (${object.confidence})`);
 
-        return {
+        const result: IntentResult = {
             intent: object.intent as IntentType,
             confidence: object.confidence,
             params: object.params,
             language: object.language as 'am' | 'en',
         };
+
+        try {
+            // Cache intent results for 5 minutes (300 seconds)
+            const tenantRedis = createTenantRedisClient(tenant);
+            await tenantRedis.set(cacheKey, result, { ex: 300 });
+            console.log(`[Intent Cache][${tenant.companyName}] Saved result for key: ${cacheKey}`);
+        } catch (err) {
+            console.warn(`[Intent Cache] Set failed (non-blocking):`, err);
+        }
+
+        return result;
     } catch (error) {
         console.error(`[Intent][${tenant.companyName}] AI Gateway routing processing failed:`, error);
         return { intent: "unknown", confidence: 0.0, language: 'en' };

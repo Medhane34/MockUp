@@ -28,7 +28,6 @@ export async function getOrCreateBuyer(telegramId: string, username: string, ten
         username: username || 'unknown',
         firstInteraction: new Date().toISOString(),
         lastInteraction: new Date().toISOString(),
-        status: 'raw',
         totalMessages: 1,
         // Default Baseline Qualification State parameters
         leadScore: 0,

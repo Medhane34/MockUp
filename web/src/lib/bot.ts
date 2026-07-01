@@ -33,7 +33,8 @@ import { getProductList, getProductDetails, getFAQs } from "./sanity/queries";
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
 import { createGateway } from '@ai-sdk/gateway';
-
+// ─── ADD THIS TO YOUR IMPORTS AT THE TOP OF bot.ts ───
+import { createTenantRedisClient } from "@/lib/upstash"; // 🟢 Reuse our existing dynamic pool factory
 // ─── Gateway Initialization ───────────────────────────────────────────────
 // Use the GOOGLE_API_KEY from your environment variables.
 // We explicitly set autoTokenFetching to true so you don't need to manage keys.
@@ -46,7 +47,9 @@ const gateway = createGateway({
 const stateAdapter = createRedisState();
 
 // ─── Conversation History Helpers ─────────────────────────────────────────────
-async function getConversationHistory(threadId: string, limit = 8) {
+// ─── 🔄 UPDATED CONVERSATION HISTORY HELPERS ───
+
+async function getConversationHistory(stateAdapter: any, threadId: string, limit = 8) {
     try {
         const key = `history:${threadId}`;
         const history = await stateAdapter.getList?.(key);
@@ -58,7 +61,7 @@ async function getConversationHistory(threadId: string, limit = 8) {
     }
 }
 
-async function saveToHistory(threadId: string, role: "user" | "assistant", content: string) {
+async function saveToHistory(stateAdapter: any, threadId: string, role: "user" | "assistant", content: string) {
     try {
         const key = `history:${threadId}`;
         await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() });
@@ -78,6 +81,14 @@ async function saveToHistory(threadId: string, role: "user" | "assistant", conte
  */
 async function handleAIResponse(thread: any, message: any, tenant: TenantContext) {
     const tenantClient = createTenantClient(tenant);
+    // 1. 🔄 Fetch the fully isolated, type-safe Upstash Redis client instance block
+    const tenantRedisInstance = createTenantRedisClient(tenant);
+
+    // 2. 🟢 FIXED TYPE SEGREGATION: Pass the native instance straight to the adapter
+    const tenantStateAdapter = createRedisState({
+        client: tenantRedisInstance as any // Clears out the 'token' unknown property type error instantly!
+    });
+
     const telegramId = message.from?.id?.toString() || message.chat?.id?.toString() || "unknown";
     const threadId = thread.id || telegramId;
     const userName: string = message.from?.username ?? message.from?.first_name ?? "user";
@@ -132,8 +143,9 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
             prompt = buildFallbackPrompt(ctx);
         }
 
-        // Conversation history
-        const history = await getConversationHistory(threadId, 8);
+        // 🔄 FIXED: Reads context exclusively from their own database instance node
+        const history = await getConversationHistory(tenantStateAdapter, threadId, 8);
+
 
         const tools = buildSanityTools(tenantClient, tenant);
         const result = await generateText({
@@ -160,10 +172,11 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
         const replyText = result.text || "Sorry, I couldn't generate a response right now.";
 
         // Persist to history
-        await saveToHistory(threadId, "user", userText);
-        await saveToHistory(threadId, "assistant", replyText);
+        // 🔄 FIXED: Persists the new message pairs isolated inside their own cluster
+        await saveToHistory(tenantStateAdapter, threadId, "user", userText);
+        await saveToHistory(tenantStateAdapter, threadId, "assistant", replyText);
         /*         await updateBuyerProfile(telegramId, tenantClient, {});
-         */
+                 */
         await thread.post(replyText);
 
     } catch (error: any) {
@@ -180,6 +193,14 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
  * @param tenant - The TenantContext for this bot
  */
 export function createBotForTenant(tenant: TenantContext): Chat {
+    // Dynamically build their state parameters for structural framework caching boundaries
+    // 1. 🔄 Fetch the fully isolated, type-safe Upstash Redis client instance block
+    const tenantRedisInstance = createTenantRedisClient(tenant);
+
+    // 2. 🟢 FIXED TYPE SEGREGATION: Pass the native instance straight to the adapter
+    const tenantState = createRedisState({
+        client: tenantRedisInstance as any// Clears out the 'token' unknown property type error instantly!
+    });
     const bot = new Chat({
         userName: `${tenant.subdomain}_bot`,
         adapters: {
@@ -188,7 +209,7 @@ export function createBotForTenant(tenant: TenantContext): Chat {
                 botToken: tenant.telegramBotToken,
             }),
         },
-        state: createRedisState(),
+        state: tenantState,
         concurrency: "queue",
         lockScope: "channel",
     });

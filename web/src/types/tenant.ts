@@ -33,4 +33,13 @@ export interface TenantContext {
     dailyMessageLimit: number;
     /** Tenant account status */
     status: 'active' | 'trial' | 'suspended';
+    redisUrl: string;
+    redisToken: string;
+    qstashToken: string;
+    qstashTopicId: string;
+    monthlyAiTokenLimit: number;
+    currentMonthTokens: number;
+    monthlyAiCostLimit: number;
+    qstashCurrentSigningKey: string;  // 🟢 ADD THIS
+    qstashNextSigningKey: string;    // 🟢 ADD THIS
 }
