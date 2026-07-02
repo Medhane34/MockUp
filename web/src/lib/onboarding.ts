@@ -24,14 +24,12 @@ export async function handleOnboarding(
     tenant: TenantContext,
     tenantClient: SanityClient
 ): Promise<OnboardingResult> {
-    // Telegram sends either update.message or update.callback_query at the root level
     const msg = update.message ?? update.edited_message ?? null;
     const cbQuery = update.callback_query ?? null;
 
     const rawText = typeof msg?.text === "string" ? msg.text.trim() : "";
     const userText = rawText.toLowerCase();
 
-    // Derive `from` regardless of update type
     const from = msg?.from ?? cbQuery?.from ?? null;
 
     console.log(`[Onboarding][${tenant.companyName}] User ${telegramId} - Step: ${existingBuyer?.onboardingStep || 'new'}`);
@@ -70,7 +68,6 @@ export async function handleOnboarding(
         }
 
         if (cbData === "onboarding_agree") {
-            // Create Buyer document ONLY after user agrees
             await createOrUpdateBuyer(telegramId, {
                 username: from?.username,
                 onboardingStep: "name",
@@ -131,25 +128,35 @@ export async function handleOnboarding(
         };
     }
 
-    // ─── STEP 3: Phone Number (Contact Share) ───────────────────────────────────
+    // ─── STEP 3: Phone Number (Contact Share Catching Step) ─────────────────────
+    // ─── STEP 3: Phone Number (Contact Share Catching Step) ─────────────────────
     if (msg?.contact && existingBuyer?.onboardingStep === "phone") {
         await createOrUpdateBuyer(telegramId, {
             phone: msg.contact.phone_number,
             onboardingStep: "language",
         }, tenantClient);
 
+        // 🔄 THE SEPARATION FIX: We split the operations into an array of two distinct responses.
+        // The router block will process and send these in sequential order.
         return {
             handled: true,
             response: {
-                text: "Thank you! What's your preferred language?",
+                text: "Saving phone number... 📱",
+                // 1. First payload focuses strictly on closing the native keyboard drawer safely
+                replyMarkup: { remove_keyboard: true }
+            },
+            // We append a custom field payload array here so route.ts knows there is a follow-up step
+            nextResponse: {
+                text: "Thank you! What's your preferred language? / እናመሰግናለን! የሚመርጡትን ቋንቋ ይምረጡ፦",
+                // 2. Second payload focuses strictly on rendering your inline buttons cleanly
                 replyMarkup: {
                     inline_keyboard: [
-                        [{ text: "🇪🇹 Amharic", callback_data: "lang_am" }],
+                        [{ text: "🇪🇹 Amharic (አማርኛ)", callback_data: "lang_am" }],
                         [{ text: "🇬🇧 English", callback_data: "lang_en" }],
-                    ],
-                },
-            },
-        };
+                    ]
+                }
+            }
+        } as any;
     }
 
     return { handled: false, buyer: existingBuyer };
@@ -158,7 +165,6 @@ export async function handleOnboarding(
 // ─── Helper: Show dynamic product categories as inline buttons ────────────────
 async function showInterestCategories(telegramId: string, tenantClient: SanityClient): Promise<OnboardingResult> {
     try {
-        // array::unique() is the correct GROQ syntax for deduplication
         const cats: string[] = await tenantClient.fetch(
             `array::unique(*[_type == "product" && defined(category)].category)`
         );
@@ -179,7 +185,6 @@ async function showInterestCategories(telegramId: string, tenantClient: SanityCl
         };
     } catch (e) {
         console.error("[Onboarding] Categories fetch failed:", e);
-        // Graceful fallback: skip interest step, mark completed
         await createOrUpdateBuyer(telegramId, { onboardingStep: "completed", status: "raw" }, tenantClient);
         return {
             handled: true,

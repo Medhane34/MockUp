@@ -17,7 +17,9 @@ export async function getTenantBySubdomain(subdomain: string) {
     status,
     projectId,
     dataset,
-    sanityApiToken
+    sanityApiToken, 
+
+    
   }`;
 
     return adminClient.fetch(query, { subdomain });

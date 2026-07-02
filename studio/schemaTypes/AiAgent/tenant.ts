@@ -114,7 +114,83 @@ export default {
             type: 'string',
             description: 'Secret to validate incoming webhooks from this tenant\'s Sanity project',
         },
+        // ─── 8. Redis Configuration (Data Isolation) ───────────────────────
+        {
+            name: 'redisUrl',
+            title: 'Redis URL',
+            type: 'string',
+            description: 'Upstash Redis REST API URL for this tenant (https://eu1-xxx.upstash.io)',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'redisToken',
+            title: 'Redis Token',
+            type: 'string',
+            description: 'Upstash Redis REST API Token (secret)',
+            validation: (Rule: any) => Rule.required(),
+        },
 
+        // ─── 9. QStash Configuration (Queue Isolation) ──────────────────────
+        {
+            name: "qstashUrl",
+            title: "QStash URL",
+            type: "string",
+            description: "Upstash QStash API URL for this tenant",
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'qstashToken',
+            title: 'QStash Token',
+            type: 'string',
+            description: 'Upstash QStash API token for this tenant',
+            validation: (Rule: any) => Rule.required(),
+        },
+        // Add these to your fields array inside tenant.ts
+        {
+            name: 'qstashCurrentSigningKey',
+            title: 'QStash Current Signing Key',
+            type: 'string',
+            description: 'The current signing key from this tenant\'s unique QStash dashboard setup.',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'qstashNextSigningKey',
+            title: 'QStash Next Signing Key',
+            type: 'string',
+            description: 'The next signing key from this tenant\'s unique QStash dashboard setup.',
+            validation: (Rule: any) => Rule.required(),
+        },
+
+        /*   {
+              name: 'qstashTopicId',
+              title: 'QStash Topic ID',
+              type: 'string',
+              description: 'Topic ID for AI task queue (e.g., "ai-tasks-muko")',
+  
+          },
+   */
+        // ─── 10. AI Usage Limits & Billing ──────────────────────────────────
+        {
+            name: 'monthlyAiTokenLimit',
+            title: 'Monthly AI Token Limit',
+            type: 'number',
+            initialValue: 1000000, // 1M tokens
+            description: 'Maximum tokens this tenant can use per month',
+        },
+        {
+            name: 'currentMonthTokens',
+            title: 'Current Month Tokens Used',
+            type: 'number',
+            initialValue: 0,
+            readOnly: () => true,
+        },
+        {
+            name: 'monthlyAiCostLimit',
+            title: 'Monthly AI Cost Limit ($)',
+            type: 'number',
+            initialValue: 100, // $100/month
+            description: 'Maximum cost in USD this tenant can incur',
+        },
         // ─── 7. Limits & Billing ────────────────────────────────────────────────
         {
             name: 'status',
