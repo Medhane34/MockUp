@@ -5,7 +5,13 @@ export default defineType({
     title: 'Product',
     type: 'document',
     fields: [
-
+        defineField({
+            name: 'ProductSku',
+            title: 'Product SKU / Inventory ID',
+            type: 'string',
+            description: 'Enter the unique warehouse catalog SKU or item model code (e.g., sam-a35-256gb).',
+            validation: (Rule) => Rule.required(),
+        }),
         defineField({
             name: 'name',
             title: 'Product Name',

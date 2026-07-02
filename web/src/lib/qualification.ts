@@ -13,7 +13,7 @@ export interface QualificationData {
     interests?: string[];
     leadScore?: number;
     qualificationNotes?: string;
-    qualificationStage?: 'new' | 'partial' | 'fully_qualified' | 'disqualified' | 'lost' | string;
+    qualificationStage?: 'new' | 'partial' | 'fully_qualified' | 'disqualified' | 'lost' | 'customer' | string;
     lastQualifiedAt?: string;
 }
 

@@ -23,6 +23,8 @@ import { createGateway } from '@ai-sdk/gateway';
 import { getAdaptiveQualificationRule } from "@/lib/sanity/rules";
 // ─── ADD THIS TO YOUR IMPORTS AT THE TOP OF THE FILE ───
 import { createTenantRedisClient } from "@/lib/upstash"; // 🟢 Import dynamic factory
+import { checkPaymentStatus, generateCheckoutSessionToken } from "@/lib/checkout";
+
 
 // Allow up to 60s for processing
 export const maxDuration = 60;
@@ -188,6 +190,106 @@ async function processUpdate(
     // Handle Callback Queries for Qualification
     if (callbackQuery) {
         const cbData = callbackQuery.data || "";
+        // src/app/api/webhook/telegram/process/route.ts
+
+        // ─── 🟢 FIXED: ALIGNED WITH YOUR WORKING INTERCEPTOR INFRASTRUCTURE ───
+        // src/app/api/webhook/telegram/process/route.ts
+
+        if (cbData === "payment_poll_check") {
+            console.log(`[Polling Interceptor][${tenant.companyName}] User ${telegramId} clicked 'Payment Confirmed'. Polling isolated cache.`);
+
+            // Defuse the Telegram button loading ring instantly to keep the UI highly responsive
+            const cleanToken = tenant.telegramBotToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
+            const ackUrl = `https://api.telegram.org/bot${cleanToken}/answerCallbackQuery`;
+            try {
+                await fetch(ackUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ callback_query_id: callbackQuery.id }),
+                });
+            } catch (e) { }
+
+            // Connect dynamically to the tenant's completely isolated Redis database node
+            const tenantRedis = createTenantRedisClient(tenant);
+
+            // ─── RESILIENT SKU RESOLUTION FOR POLL CHECK ───
+            // Strategy: The checkout session was seeded with the REAL productSku.
+            // We scan the user's active checkout session keys to find it, rather than
+            // re-deriving from coreNeed (which is human-readable, not a warehouse SKU).
+            let targetProductSku = "";
+
+            // Step 1: Try to find any active checkout:session key for this user
+            try {
+                const sessionPattern = `checkout:session:${telegramId}:*`;
+                const sessionKeys = await tenantRedis.keys(sessionPattern);
+                if (sessionKeys && sessionKeys.length > 0) {
+                    // Use the most recently written session (last key)
+                    const latestKey = sessionKeys[sessionKeys.length - 1];
+                    // Extract the SKU from the key: checkout:session:{telegramId}:{sku}
+                    const keyParts = (latestKey as string).split(":");
+                    targetProductSku = keyParts.slice(3).join(":"); // handles SKUs with colons
+                    console.log(`[Polling Interceptor][${tenant.companyName}] Resolved active checkout SKU from session key: "${targetProductSku}"`);
+                }
+            } catch (scanErr) {
+                console.warn(`[Polling Interceptor][${tenant.companyName}] Key scan failed, falling back to coreNeed:`, scanErr);
+            }
+
+            // Step 2: Fallback — use coreNeed with fuzzy catalog lookup (handles exact product name/slug)
+            if (!targetProductSku) {
+                const coreNeedRaw = (activeBuyerProfile?.coreNeed || existingBuyer?.coreNeed || "").trim().toLowerCase();
+                const normalizedSlug = coreNeedRaw.replace(/\s+/g, "-");
+                const productData = await tenantClient.fetch(
+                    `*[_type == "product" && (
+                        lower(productSku) == lower($coreNeed) ||
+                        lower(slug.current) == lower($coreNeed) ||
+                        lower(slug.current) == lower($normalizedSlug) ||
+                        name match $coreNeed
+                    )][0]{ productSku }`,
+                    { coreNeed: coreNeedRaw, normalizedSlug }
+                );
+                targetProductSku = productData?.productSku || coreNeedRaw;
+                console.log(`[Polling Interceptor][${tenant.companyName}] Fallback SKU from catalog lookup: "${targetProductSku}"`);
+            }
+
+            // 🔄 LOOKUP SYSTEM: Reads the unique namespaced key variant matching the clean SKU code
+            const sessionCacheKey = `checkout:session:${telegramId}:${targetProductSku}`;
+            const cachedData = await tenantRedis.get(sessionCacheKey);
+            console.log(`[Polling Interceptor][${tenant.companyName}] Polling Redis key: "${sessionCacheKey}" → ${cachedData ? "HIT" : "MISS"}`);
+
+            const isAmharic = existingBuyer.language === 'am';
+            let verified = false;
+            let payload: any = null;
+
+            if (cachedData) {
+                payload = typeof cachedData === "string" ? JSON.parse(cachedData) : cachedData;
+                if (payload?.paymentStatus === "VERIFIED_PAID") {
+                    verified = true;
+                }
+            }
+
+            if (verified) {
+                console.log(`[Polling Interceptor][${tenant.companyName}] Payment MATCH FOUND! Unrolling success message.`);
+
+                // Lowercased all structural <b> tag string properties cleanly
+                const successText = isAmharic
+                    ? `🎉 <b>ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!</b>\n\nስለ መረጡን እናመሰግናለን! ትዕዛዝዎ <b>📦 ተመዝግቧል</b>። በአሁኑ ወቅት የሽያጭ ቡድናችን ዕቃውን ለእርስዎ ለማዘጋጀት እየሠራ ይገኛል። ለተጨማሪ መረጃ ወይም የማድረሻ ሁኔታን ለመከታተል በቀጥታ እዚህ ያግኙን፦ ${tenant.supportHandle}። መልካም ቀን!`
+                    : `🎉 <b>Payment Confirmed Successfully!</b>\n\nThank you for your purchase! Your order for <b>'${payload?.productName || payload?.productSku}'</b> has been securely locked in. Our logistics team is now preparing your fulfillment. For any assistance or delivery updates, feel free to reach out to us at ${tenant.supportHandle}!`;
+
+                await sendFormattedMessage(tenant.telegramBotToken, chatId, successText, "HTML", null);
+                return; // 🛑 Complete process termination! User successfully converted.
+            } else {
+                console.log(`[Polling Interceptor][${tenant.companyName}] No verified payment found yet for user ${telegramId}. Prompting retry.`);
+
+                // Appended your dynamic tenant support handle context link cleanly to the error notice
+                const retryNoticeText = isAmharic
+                    ? `⚠️ <b>ክፍያዎ ገና አልተመዘገበም</b>\n\nየባንክ ማረጋገጫዎ በአሊጉ የውሂብ ጎታ ላይ እስካሁን አልደረሰም። እባክዎ በድር ጣቢያው ላይ ክፍያውን ማጠናቀቅዎን ያረጋግጡ። ክፍያውን ከፈጸሙ በኋላ ከ10-15 ሰከንድ ይጠብቁ እና እንደገና <b>'ክፍያ አረጋግጫለሁ'</b> የሚለውን ቁልፍ ይጫኑ። ለፈጣን እገዛ የደንበኞች አገልግሎታችንን እዚህ ያግኙ፦ ${tenant.supportHandle}።`
+                    : `⚠️ <b>Payment Record Not Found Yet</b>\n\nWe haven't received a secure settlement callback from the payment gateway for your session yet. Please ensure you completed the transaction on the checkout page. If you have already paid, wait 10-15 seconds for the network to sync and tap <b>'I've Confirmed Payment'</b> again. For direct verification assistance, contact our support team at ${tenant.supportHandle}!`;
+
+                await sendFormattedMessage(tenant.telegramBotToken, chatId, retryNoticeText, "HTML", null);
+                return; // Terminates safely, allowing them to poll again when ready
+            }
+        }
+
         if (cbData === "recommend_init") {
             console.log(`[Recommendation Engine] User initiated a personalized finder journey.`);
 
@@ -446,10 +548,127 @@ async function processUpdate(
             sanityContext = faqs.length > 0 ? JSON.stringify(faqs) : "No FAQs found.";
             prompt = buildInfoPrompt({ ...ctx, sanityContext });
         } else if (intent === "order") {
-            prompt = buildSupportPrompt({
-                ...ctx,
-                sanityContext: `Direct user to contact support at ${tenant.supportHandle} to complete their order.`,
-            });
+            // The raw product code token the user typed or clicked (e.g., "sam-a35-256gb")
+            const inputSku = (intentResult.params?.slug || activeBuyerProfile?.coreNeed || "").trim().toLowerCase();
+
+            // 🔍 VALIDATION GUARD: Verify if an explicit product slug was selected
+            if (!inputSku || inputSku.trim() === "") {
+                console.log(`[Order Funnel][${tenant.companyName}] User initiated purchase intent without specifying a product slug.`);
+
+                // Keep the flow conversational so Gemini guides them to choose a product first
+                prompt = buildSupportPrompt({
+                    ...ctx,
+                    sanityContext: "The user wants to buy an item but did not provide a specific product code or SKU. Look at the context, and politely ask them to specify which item SKU they want to lock in."
+                });
+            } else {
+                console.log(`[Order Funnel][${tenant.companyName}] Querying catalog directly for SKU: "${inputSku}"`);
+
+                // 🔍 TWO-PASS PRODUCT LOOKUP STRATEGY:
+                // Pass 1 — Exact match on productSku and slug (normalized: spaces→hyphens)
+                // Pass 2 — GROQ `match` word-based fuzzy search on product name
+                // Handles: "mac book pro"→"MacBook Pro", "automatic-coffee-maker"→"Automatic Coffee Maker"
+                // Clean up string noise from free-form user speech inputs
+                const cleanInput = inputSku.trim();
+                const normalizedSlug = cleanInput.toLowerCase().replace(/\s+/g, "-"); // "Samsung Galaxy A35" -> "samsung-galaxy-a35"
+                const wildInput = `${cleanInput}*`; // Creates a suffix search token for fuzzy string matches
+                console.log(`[Order Funnel][${tenant.companyName}] Running resilient search for: "${cleanInput}" (Slug: "${normalizedSlug}")`);
+
+                // 🔄 UPDATED HIGH-VELOCITY CASE-INSENSITIVE MULTI-MATCH QUERY
+                const productData = await tenantClient.fetch(
+                    `*[_type == "product" && (
+                        lower(productSku) == lower($cleanInput) ||
+                        lower(productSku) == lower($normalizedSlug) ||
+                        lower(slug.current) == lower($cleanInput) ||
+                        lower(slug.current) == lower($normalizedSlug) ||
+                        lower(name) == lower($cleanInput) ||
+                        name match $cleanInput ||
+                        name match $wildInput
+                    )][0]{ productSku, name }`,
+                    { cleanInput, normalizedSlug, wildInput }
+                );
+
+                console.log(`[Order Funnel][${tenant.companyName}] Catalog lookup result for "${inputSku}": ${JSON.stringify(productData)}`);
+
+                // 🛡️ CRITICAL SKU GUARD: If no verified catalog product was found, do NOT generate
+                // a checkout URL. The SKU must come from the database — never from coreNeed fallback,
+                // which is a human-readable description (e.g., "macbook pro") not a warehouse SKU.
+                // 🔄 FIXED CONVERSION INTERCEPTOR GUARD:
+                // We verify that a valid product row was found by checking BOTH schema properties safely!
+                if (!productData || (!productData.productSku && !productData.name)) {
+                    console.warn(`[Order Funnel][${tenant.companyName}] No verified catalog match found for: "${cleanInput}". Aborting checkout link.`);
+
+                    // Keeps execution conversational without crashing your serverless instances
+                    prompt = buildSupportPrompt({
+                        ...ctx,
+                        sanityContext: `The user expressed intent to buy something, but we could not find any product match for "${cleanInput}" in our inventory database. Do NOT generate a checkout link. Politely inform them we couldn't locate that specific item, and invite them to double check the name or type 'show product list' to see all options.`
+                    });
+                } else {
+                    // ✅ Verified catalog SKU — safe to generate checkout session
+                    const activeSku = productData.productSku;
+                    const productName = productData.name || activeSku;
+
+                    console.log(`[Order Funnel][${tenant.companyName}] Verified catalog SKU: "${activeSku}" for product: "${productName}"`);
+
+                    // Create your secure ephemeral session verification token
+                    const sessionToken = generateCheckoutSessionToken(telegramId, activeSku);
+
+                    // 2. Compile our unified multitenant session cache payload mapping object
+                    const sessionPayload = {
+                        sessionToken,
+                        tenantId: tenant.id,
+                        telegramId,
+                        productSku: activeSku, // ← Always the real warehouse SKU from Sanity
+                        productName,
+                        status: "pending_payment",
+                        createdAt: new Date().toISOString()
+                    };
+
+                    // 3. Connect dynamically to the tenant's completely isolated Redis database node
+                    const tenantRedis = createTenantRedisClient(tenant);
+                    const sessionCacheKey = `checkout:session:${telegramId}:${activeSku}`;
+                    try {
+                        // Seed the session state token into memory with a clean 30-minute TTL expiration (1800s)
+                        await tenantRedis.set(sessionCacheKey, JSON.stringify(sessionPayload), { ex: 1800 });
+                        console.log(`[Order Funnel][${tenant.companyName}] Secure checkout session token seeded in isolated memory: ${sessionToken}`);
+                    } catch (redisErr) {
+                        console.error(`[Order Funnel][${tenant.companyName}] Failed to seed transaction tokens to Redis:`, redisErr);
+                    }
+
+                    // 4. Construct the localized persuasion prompt for Gemini to act as a closing agent
+                    prompt = buildSupportPrompt({
+                        ...ctx,
+                        sanityContext: `CRITICAL CONVERSION INSTRUCTION:
+- The user is checking out for the product: "${productName}" (SKU: ${activeSku}).
+- A dynamic 1-click checkout inline keyboard link has been generated and appended below your response text window by the platform transport layers.
+- Do NOT instruct them to contact human support handles here.
+- Instead, enthusiastically confirm their selection, explain that their customized web secure sandbox checkout link is ready right below, and tell them to tap it to complete their mobile payment transaction securely!`
+                    });
+
+                    // 5. ─── 🟢 BUILD CONVERSION BUTTON ROWS ───
+                    const vercelHost = process.env.NEXT_PUBLIC_VERCEL_URL || process.env.VERCEL_URL || "localhost:3000";
+                    const protocol = vercelHost.includes("localhost") ? "http" : "https";
+                    const sandboxUrl = `${protocol}://${vercelHost}/checkout-sandbox?sessionToken=${sessionToken}&tenantId=${tenant.id}&telegramId=${telegramId}&productSku=${activeSku}&productName=${encodeURIComponent(productName)}`;
+                    activeReplyMarkup = {
+                        inline_keyboard: [
+                            // ROW 1: The high-intent direct action web checkout gateway redirect trigger link
+                            [
+                                {
+                                    text: userLanguage === 'am' ? "💳 ክፍያ ፈጽም (የሙከራ ገጽ)" : "💳 Proceed to Web Checkout",
+                                    url: sandboxUrl
+                                }
+                            ],
+                            // ROW 2: The local polling listener button to re-evaluate Redis cache transaction confirmations
+                            [
+                                {
+                                    text: userLanguage === 'am' ? "✅ ክፍያ አረጋግጫለሁ" : "✅ I've Confirmed Payment",
+                                    callback_data: `payment_poll_check`
+                                }
+                            ]
+                        ]
+                    };
+                }
+            }
+
         } else if (intent === "greeting") {
             prompt = buildGreetingPrompt(ctx);
         } else {
@@ -584,4 +803,3 @@ async function handleOnboardingUpdate(
         );
     }
 }
-
