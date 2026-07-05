@@ -9,7 +9,7 @@ import type { TenantConfig, TenantContext } from "@/types/tenant"; // Adapts to 
 const tenantConfigMemoryCache = new Map<string, { config: TenantConfig; expires: number }>();
 const PLATFORM_CONFIG_TTL = 5 * 60 * 1000; // 5 Minutes in-memory lifespan
 
-// ─── 2. REUSABLE DYNAMIC CONFIGURATION FACTORY GETTER ───
+// ─── 2. REUSABLE DYNAMIC CONFIGURATION FACTORY GETTER (updated) ───
 /**
  * Dynamic Tenant Configuration Getter
  * Fetches and caches isolated multi-tenant environment states in real time.
