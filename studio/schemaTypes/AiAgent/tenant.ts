@@ -114,6 +114,28 @@ export default {
             type: 'string',
             description: 'Secret to validate incoming webhooks from this tenant\'s Sanity project',
         },
+        // Add this surgically inside your fields array inside studio/schemaTypes/AiAgent/tenant.ts
+        {
+            name: "contextSlug", // 🟢 Fixed naming to match your application logic routers
+            title: "AI Context Routing Slug",
+            type: "slug",
+            options: {
+                source: (doc: any) => `${doc.companyName || "sales-agent"}-context`,
+                maxLength: 200,
+                slugify: (input: string) => input.toLowerCase().replace(/\s+/g, "-").slice(0, 200)
+            },
+            description: "The matching context slug defined inside this tenant's Studio Agent configuration document (e.g. 'sales-agent-context'). Used to target RAG schema retrievals.",
+            validation: (Rule: any) => Rule.required(),
+        },
+        // Add this field right below the contextSlug inside your tenant.ts file
+        {
+            name: "globalContextFilter",
+            title: "Global Context Safety Filter",
+            type: "string",
+            initialValue: '_type in ["product", "category", "faq"]',
+            description: "Platform-level backup security gate. Rigidly locks down the document types the AI is mathematically allowed to query.",
+            validation: (Rule: any) => Rule.required(),
+        },
         // ─── 8. Redis Configuration (Data Isolation) ───────────────────────
         {
             name: 'redisUrl',

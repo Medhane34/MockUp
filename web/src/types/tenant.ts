@@ -43,3 +43,18 @@ export interface TenantContext {
     qstashCurrentSigningKey: string;  // 🟢 ADD THIS
     qstashNextSigningKey: string;    // 🟢 ADD THIS
 }
+export interface TenantConfig {
+    id: string;
+    companyName: string;
+    subdomain: string;
+    projectId: string;
+    dataset: string;
+    sanityApiToken: string;
+    redisUrl: string;
+    redisToken: string;
+    qstashToken: string;
+    qstashTopicId: string;
+    // 🟢 NEW: Sanity AI Context Infrastructure Configurations
+    contextSlug: string;
+    globalContextFilter: string;
+}

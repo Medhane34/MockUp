@@ -3,16 +3,14 @@ import { structureTool } from "sanity/structure";
 import { visionTool } from "@sanity/vision";
 import { schemaTypes } from "./schemaTypes";
 import { SendNotificationAction } from "./actions/SendNotificationAction";
-
-const projectId = process.env.SANITY_STUDIO_PROJECT_ID;
-const dataset = process.env.SANITY_STUDIO_DATASET;
+import { contextPlugin } from '@sanity/context/studio'
 
 export default defineConfig({
-  name: "default",
+
   title: "Studio",
   projectId: process.env.SANITY_STUDIO_PROJECT_ID!,
   dataset: process.env.SANITY_STUDIO_DATASET!,
-  plugins: [structureTool(), visionTool()],
+  plugins: [structureTool(), visionTool(), contextPlugin()],
   schema: {
     types: schemaTypes,
   },
