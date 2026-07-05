@@ -15,11 +15,11 @@
     "sanity"
   ],
   "dependencies": {
-    "@sanity/vision": "^4.22.0",
+    "@sanity/vision": "^6.3.0",
     "dotenv": "^17.4.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "sanity": "^6.2.0",
+    "sanity": "^6.3.0",
     "styled-components": "^6.1.8"
   },
   "devDependencies": {

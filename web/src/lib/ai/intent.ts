@@ -3,6 +3,9 @@ import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provi
 import { z } from "zod";
 import type { TenantContext } from "@/types/tenant";
 import { generateObject } from "ai";
+import { createGateway } from '@ai-sdk/gateway';
+import { createTenantRedisClient } from "@/lib/upstash";
+
 export type IntentType =
     | 'product_browse'
     | 'product_detail'
@@ -10,6 +13,7 @@ export type IntentType =
     | 'greeting'
     | 'order'
     | 'qualification'
+    | 'recommendation'
     | 'unknown';
 
 export interface IntentResult {
@@ -22,7 +26,12 @@ export interface IntentResult {
         faqCategory?: string;
     };
 }
-
+// ─── Gateway Initialization ───────────────────────────────────────────────
+// Use the GOOGLE_API_KEY from your environment variables.
+// We explicitly set autoTokenFetching to true so you don't need to manage keys.
+const gateway = createGateway({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+});
 /**
  * Initialize a central Google provider linked to your Vercel AI Gateway infrastructure.
  * This dynamically applies your new API key string from your Vercel environment variables.
@@ -58,14 +67,34 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
         return structuralTrigger;
     }
 
-    console.log(`[Intent][${tenant.companyName}] Routing message to Vercel AI Gateway Router...`);
+    // Generate Redis cache key based on cleaned text query to prevent redundant runs
+    const cleanText = text.trim().toLowerCase();
+    const textHash = cleanText.length > 50
+        ? cleanText.substring(0, 50) + "_" + cleanText.length
+        : cleanText;
+    const cacheKey = `intent:${tenant.id}:${encodeURIComponent(textHash)}`;
+
+    try {
+        // 🔄 Use the dynamic tenant Redis client for isolation
+        const tenantRedis = createTenantRedisClient(tenant);
+        const cached = await tenantRedis.get<IntentResult>(cacheKey);
+        if (cached) {
+            console.log(`[Intent Cache][${tenant.companyName}] HIT for key: ${cacheKey}`);
+            return cached;
+        }
+    } catch (err) {
+        console.warn(`[Intent Cache] Get failed (non-blocking):`, err);
+    }
+
+    console.log(`[Intent][${tenant.companyName}] Cache MISS — Routing message to Vercel AI Gateway Router...`);
 
     try {
         const { object } = await generateObject({
             // 🔄 UPDATED: Now uses your initialized gateway instance.
             // Using 'gemini-1.5-flash' to leverage the large 1500 req/day free pool.
-            model: google("gemini-2.5-flash"), schema: z.object({
-                intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown']),
+            model: gateway('google/gemini-2.5-flash-preview-09-2025'),
+            schema: z.object({
+                intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown', 'recommendation']),
                 confidence: z.number().min(0).max(1),
                 language: z.enum(['am', 'en']).describe("Detected language of the user text. 'am' for Amharic script/transliteration, 'en' for English."),
                 params: z.object({
@@ -76,9 +105,17 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
             }),
             // 🔄 The gateway fallback parameter is now fully functional because it maps over an active gateway token
             providerOptions: {
-                gateway: {
-                    models: ['google/gemini-2.5-flash', 'google/gemini-1.5-flash'],
+                // Use Google's production endpoint (not v1beta experimental)
+                google: {
+                    useProduction: true, // This ensures v1 API, not v1beta
                 },
+                // Additionally, you can specify provider order
+                gateway: {
+                    order: ['google'], // Only use Google's production endpoint
+                },
+                /*  gateway: {
+                     models: ['google/gemini-2.5-flash', 'google/gemini-1.5-flash'],
+                 }, */
             },
             system: `You are an expert bilingual (English & Amharic) intent classifier for "${tenant.companyName}", which operates in the ${tenant.niche} niche.
 Your goal is to parse user intents accurately, resolving native variations, spelling variants, and Amharic script (ፊደል).
@@ -93,6 +130,7 @@ CRITICAL INTENT RULES:
 - product_detail: Deep dive query or technical questions about one specific item or item slug.
 - faq: Operational procedural questions. Map 'faqCategory' field strictly to 'Returns', 'Shipping', 'Pricing', or 'General'.
 - order: Actions showing they are immediately moving to transaction state (buy, book, pay, checkout, ሂሳብ ክፈል).
+- recommendation: TRIGGERED when the user explicitly asks for help choosing, wants a personalized recommendation, asks for the bot to pick for them, or if the text implies "I selected my budget/timeline" via button triggers.
 - qualification: Early exploration phase. They are stating their problems, needs, or asking you to make a choice/recommendation for them.
 - unknown: Completely irrelevant text, garbage strings, or unparseable context.`,
             prompt: `User Message to evaluate: "${text}"`,
@@ -100,12 +138,23 @@ CRITICAL INTENT RULES:
 
         console.log(`[Intent][${tenant.companyName}] AI Gateway classified: ${object.intent} (${object.confidence})`);
 
-        return {
+        const result: IntentResult = {
             intent: object.intent as IntentType,
             confidence: object.confidence,
             params: object.params,
             language: object.language as 'am' | 'en',
         };
+
+        try {
+            // Cache intent results for 5 minutes (300 seconds)
+            const tenantRedis = createTenantRedisClient(tenant);
+            await tenantRedis.set(cacheKey, result, { ex: 300 });
+            console.log(`[Intent Cache][${tenant.companyName}] Saved result for key: ${cacheKey}`);
+        } catch (err) {
+            console.warn(`[Intent Cache] Set failed (non-blocking):`, err);
+        }
+
+        return result;
     } catch (error) {
         console.error(`[Intent][${tenant.companyName}] AI Gateway routing processing failed:`, error);
         return { intent: "unknown", confidence: 0.0, language: 'en' };

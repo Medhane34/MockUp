@@ -14,7 +14,6 @@ export default defineType({
         defineField({ name: 'firstName', type: 'string' }),
         defineField({ name: 'phone', type: 'string', description: 'Phone number shared via Telegram contact' }),
         defineField({ name: 'preferredLanguage', type: 'string', options: { list: ['en', 'am'] } }),
-        defineField({ name: 'status', type: 'string', initialValue: 'raw', options: { list: ['raw', 'new', 'qualified', 'quoted', 'customer', 'lost'] } }),
         defineField({ name: 'interests', type: 'array', of: [{ type: 'string' }] }),
         defineField({ name: 'firstInteraction', type: 'datetime' }),
         defineField({ name: 'lastInteraction', type: 'datetime' }),
@@ -33,17 +32,7 @@ export default defineType({
             name: 'qualificationStage',
             title: 'Qualification Stage',
             type: 'string',
-            options: {
-                list: [
-                    { title: 'New', value: 'new' },
-                    { title: 'Intent Captured', value: 'intent' },
-                    { title: 'Needs Identified', value: 'needs' },
-                    { title: 'Qualified', value: 'qualified' },
-                    { title: 'Quoted', value: 'quoted' },
-                    { title: 'Customer', value: 'customer' },
-                    { title: 'Lost', value: 'lost' },
-                ],
-            },
+
             initialValue: 'new',
         },
         {
@@ -60,15 +49,17 @@ export default defineType({
             name: 'budgetRange',
             title: 'Budget Range (ETB)',
             type: 'string',
+
+
         },
+        // Inside your Sanity Studio schemas configuration file for 'buyer':
         {
             name: 'timeline',
             title: 'Purchase Timeline',
             type: 'string',
-            options: {
-                list: ['Immediate', 'This Week', 'This Month', 'Exploring'],
-            },
+
         },
+
         {
             name: 'qualificationNotes',
             title: 'AI Qualification Notes',
