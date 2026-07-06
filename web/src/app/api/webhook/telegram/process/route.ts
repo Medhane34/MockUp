@@ -4,16 +4,6 @@ import { generateText } from "ai";
 import { createTenantClient } from "@/sanity/client";
 import { detectIntent, IntentResult, IntentType } from "@/lib/ai/intent";
 import { Receiver } from "@upstash/qstash";
-import {
-    buildSystemPrompt,
-    buildInfoPrompt,
-    buildSalesPrompt,
-    buildSupportPrompt,
-    buildGreetingPrompt,
-    buildFallbackPrompt,
-    buildRecommendationPrompt,
-} from "@/lib/ai/prompts";
-import { buildSanityTools } from "@/lib/ai/tools";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs, getProductRecommendations } from "@/lib/sanity/queries";
 import type { TenantContext } from "@/types/tenant";
@@ -86,7 +76,9 @@ export async function POST(request: NextRequest) {
         // 1. Extract the raw text stream first before any body transformers can corrupt it
         rawBody = await request.text();
         payload = JSON.parse(rawBody);
+
     } catch (err) {
+
         console.error("[QStash Processor] Failed to execute raw text payload parsing:", err);
         return new Response("Bad Request", { status: 400 });
     }
@@ -114,6 +106,7 @@ export async function POST(request: NextRequest) {
             const isValid = await receiver.verify({
                 signature: signature || "",
                 body: rawBody, // Matches against the untransformed string data block
+
             });
 
             if (!isValid) {
@@ -155,6 +148,27 @@ export async function POST(request: NextRequest) {
         console.error(`[QStash Processor][${tenant.companyName}] Error processing message:`, err);
         // Return 500 so QStash knows to retry this task later
         return new Response(`Error: ${err.message}`, { status: 500 });
+    }
+}
+
+// ─── HELPER FOR NATIVE CHAT ACTIONS ──────────────────────────────────────────
+/**
+ * Triggers Telegram's visual typing indicator status bar.
+ */
+async function sendTelegramTypingAction(botToken: string, chatId: string | number) {
+    const cleanToken = botToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
+    const url = `https://api.telegram.org/bot${cleanToken}/sendChatAction`;
+    try {
+        await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                chat_id: chatId,
+                action: "typing" // Tells Telegram to show "bot is typing..."
+            })
+        });
+    } catch (e) {
+        console.warn("[Chat Action Indicator] Failed to broadcast typing frame:", e);
     }
 }
 
@@ -316,8 +330,19 @@ async function processUpdate(
 
     // ─── 🚦 PART 2: DYNAMIC CONVERSATIONAL INTENT SWITCH CONTROLLER ───
     if (!message || !message.text) return;
-
     const userText = message.text;
+
+    // ─── 🟢 NEW: INITIALIZE THE AUTOMATED TYPING TICKER LOOP ───
+    console.log(`[Chat Action Indicator] Initializing visual typing loop for chat: ${chatId}`);
+
+    // Fire the first frame instantly to maximize user feedback response speed
+    await sendTelegramTypingAction(tenant.telegramBotToken, chatId);
+
+    // Set a recurring interval timer loop to keep the animation active every 4 seconds
+    const typingTickerIntervalId = setInterval(async () => {
+        console.log(`[Chat Action Ticker] Refreshing typing animation frame...`);
+        await sendTelegramTypingAction(tenant.telegramBotToken, chatId);
+    }, 4000);
 
     // Execute the Redis-cached bilingual intent classifier
     const intentResult = await detectIntent(userText, tenant);
@@ -355,11 +380,11 @@ async function processUpdate(
                 console.error(`[Gatekeeper Transport] Intent was: ${intentResult.intent}`)
                 console.error(`[Gatekeeper Transport] User text was: ${userText}`)
 
-                // ✅ More helpful fallback for product_detail specifically
+                /* // ✅ More helpful fallback for product_detail specifically
                 finalOutputString = intentResult.intent === 'product_detail'
                     ? `I couldn't retrieve details for that product right now. Please try again or ask to see all products.`
                     : `I encountered an issue retrieving your request. Please try again.`
-            }
+          */   }
 
             console.log(`[Gatekeeper Transport] Forwarding pristine text message string package to Telegram...`);
             return await sendFormattedMessage(tenant.telegramBotToken, chatId, finalOutputString, "HTML", null);
@@ -381,43 +406,58 @@ async function processUpdate(
         return handleGeneral(serviceArgs);
     }
 
-    // 4. 🚦 DYNAMIC HYBRID SWITCH MATRIX
-    switch (intentResult.intent) {
+    // ─── 🛡️ THE ARCHITECTURAL SAFETY WRAPPER matrix ───
+    try {
+        console.log(`[Gatekeeper Router] Executing traffic matrix switch dispatch channels...`);
 
-        // ✅ ROUTE A: Structured Price/SKU Catalog Browser
-        case "product_browse":
-        case "product_detail":
-        case "faq":
-            console.log(`[Gatekeeper][${tenant.companyName}] Routing to Structured Service (Route A).`);
-            return handleStructured(serviceArgs);
+        // 🚦 TRIPLE-TRACK ROUTING DISPATCH SWITCH MATRIX
+        switch (intentResult.intent) {
 
-        // ✅ ROUTE B: Unstructured Meaning-Based Semantic Discovery
-        case "unstructured_search":
-            console.log(`[Gatekeeper][${tenant.companyName}] Routing to Semantic Search Service (Route B).`);
-            return handleSearch(serviceArgs);
+            // ✅ ROUTE A: Structured Price/SKU Catalog Browser
+            case "product_browse":
+            case "product_detail":
+            case "faq":
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Structured Service (Route A).`);
+                return handleStructured(serviceArgs);
 
-        // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
-        case "recommendation":
-            console.log(`[Gatekeeper][${tenant.companyName}] Routing to Recommendation Service (Route D).`);
-            return handleRecommendation(serviceArgs);
+            // ✅ ROUTE B: Unstructured Meaning-Based Semantic Discovery
+            case "unstructured_search":
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Semantic Search Service (Route B).`);
+                return handleSearch(serviceArgs);
 
-        // ✅ ROUTE E: Cryptographic Transaction Order Compiler
-        case "order":
-            console.log(`[Gatekeeper][${tenant.companyName}] Routing to Transactional Order Service (Route E).`);
-            return handleOrder(serviceArgs);
+            // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
+            case "recommendation":
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Recommendation Service (Route D).`);
+                return handleRecommendation(serviceArgs);
 
-        // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
-        case "qualification":
-            console.log(`[Gatekeeper][${tenant.companyName}] Routing to Onboarding Qualification Service (Route F).`);
-            return handleQualification(serviceArgs);
+            // ✅ ROUTE E: Cryptographic Transaction Order Compiler
+            case "order":
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Transactional Order Service (Route E).`);
+                return handleOrder(serviceArgs);
 
-        // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
-        case "unknown":
-        default:
-            console.log(`[Gatekeeper][${tenant.companyName}] Routing to General Conversational Service (Route C).`);
-            return handleGeneral(serviceArgs);
+            // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
+            case "qualification":
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Onboarding Qualification Service (Route F).`);
+                return handleQualification(serviceArgs);
+
+            // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
+            case "unknown":
+            default:
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to General Conversational Service (Route C).`);
+                return handleGeneral(serviceArgs);
+        }
+
+    } catch (err: any) {
+        console.error(`[Gatekeeper Router Crash] An execution exception occurred inside service loops:`, err.message);
+        throw err; // Propagate the error so QStash can manage fallback queues
+    } finally {
+        // ─── 🏁 FIXED: THE ABSOLUTE LIFECYCLE SAFETY ANCHOR ───
+        // Because this lives inside 'finally', JavaScript forces this block to run 
+        // the exact millisecond any of the switch cases finish executing! 
+        // It cleanly halts the typing ticker loop out of memory every single time.
+        clearInterval(typingTickerIntervalId);
+        console.log(`[Chat Action Indicator] Typing loop successfully released from serverless memory.`);
     }
-
 }
 
 // ─── Onboarding Helpers ───────────────────────────────────────────────────────

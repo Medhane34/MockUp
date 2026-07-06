@@ -143,6 +143,9 @@ CRITICAL SCHEMA FACTS — memorize these before writing any query:
   Try alternative field combinations before saying nothing was found.
 - Always use groq_query tool. Never answer from memory.
 - Respond in ${intentResult.language === 'am' ? 'Amharic (በአማርኛ)' : 'English'}.
+- Product Display Name: name, price, description, features
+- Category Array Reference field name: categoryRef
+- Product Slug Object: slug.current (Never query slug directly as an object, always check slug.current)
 
 QUERY RULES:
 - Always start with a broad query if unsure — never assume a product doesn't exist
@@ -158,6 +161,8 @@ QUERY RULES:
 3. Example Correct Name Lookup: *[_type == "product" && lower(name) match lower("macbook*")]{ name, ProductSku, price, inStock, description }
 4. Example Correct SKU Lookup: *[_type == "product" && lower(ProductSku) == lower("mac-pro-256")]{ name, ProductSku, price, description }
 5. Because categories are stored inside an array reference field, you must ALWAYS use the GROQ "in" operator combined with a dereferenced loop lookup path to scan for matches.
+6. You MUST call the 'groq_query' tool for EVERY single product, catalog, category, or detail question. 
+7. If you cannot extract a precise slug, you MUST call 'groq_query' with a broad wildcard matching statement to search by name.
 
 ANTI-HALLUCINATION RULES:
 1. NEVER invent categories or products not returned by a live tool lookup.
@@ -197,30 +202,54 @@ QUERY BLUEPRINTS:
 
 ${slugHint}
 `.trim()
-    const sdkCompatibleTools: Record<string, any> = {};
-    Object.keys(mcpTools).forEach((toolName) => {
-        const tool = mcpTools[toolName];
-        sdkCompatibleTools[toolName] = {
-            // Keep Sanity's exact description and parameters mapping layout untouched
-            description: tool.description,
-            parameters: tool.inputSchema || tool.parameters,
-            execute: async (args: any) => {
-                console.log(`[Route A][Tool Invocation: ${toolName}] Executing query: ${args.query}`);
-                // Route the request securely through your trace-correlated JSON-RPC context engine file
-                const { runSanityContextQuery } = await import("@/lib/sanity/context");
-                return await runSanityContextQuery(tenant, args.query);
-            }
-        };
-    });
 
+    /*     const sdkCompatibleTools: Record<string, any> = {};
+        Object.keys(mcpTools).forEach((toolName) => {
+            const tool = mcpTools[toolName];
+            sdkCompatibleTools[toolName] = {
+                // Keep Sanity's exact description and parameters mapping layout untouched
+                description: tool.description,
+                parameters: tool.inputSchema || tool.parameters,
+                execute: async (args: any) => {
+                    console.log(`[Route A][Tool Invocation: ${toolName}] Executing query: ${args.query}`);
+                    // Route the request securely through your trace-correlated JSON-RPC context engine file
+                    const { runSanityContextQuery } = await import("@/lib/sanity/context");
+                    return await runSanityContextQuery(tenant, args.query);
+                }
+            };
+        });
+     */
 
     try {
         const result = streamText({
             model: gateway('google/gemini-2.5-flash'),
             system: systemPrompt,
             messages: formattedMessages,
-            tools: sdkCompatibleTools,   // ✅ direct — no manual mapping
-            stopWhen: ({ steps }) => steps.length >= 4,
+            tools: mcpTools,
+            maxRetries: 3,
+            providerOptions: {
+                gateway: {
+                    // 🔄 FIXED: Primary flagship model added to the front of the array list!
+                    models: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // 🔄 FIXED: Sets the precise sequence order for automated fallback switching
+                    order: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // ⏱️ VERCEL TIMEOUT INCORPORATION: 
+                    // Enforces a strict 4-second timeout limit per model invocation turn.
+                    // If gemini-2.5-flash hangs for 4000ms, Vercel instantly cuts it off 
+                    // and routes the request to flash-lite, preserving execution limits!
+                    timeout: 2500,
+                    production: true
+                },
+            },
+            stopWhen: ({ steps }) => steps.length >= 3,
             onFinish: (event) => {
                 // ✅ Add this — shows exactly what the model produced
                 console.log(`[Route A] Finish reason: ${event.finishReason}`)

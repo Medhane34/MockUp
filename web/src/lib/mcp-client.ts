@@ -97,8 +97,8 @@ export async function createTenantMCPClient(
         // 5. ─── 🛡️ DYNAMIC CAPABILITIES MATRIX FILTERING ───
         // We use your precise object destructuring mapping to strip out the 'initial_context' tool.
         // Because Phase 2 injects the schema definitions straight into the prompt via Upstash Redis,
-        // removing this tool blocks the AI from firing duplicate RAG layout requests, preserving token caps!
-        const { initial_context: _, ...mcpTools } = allTools as Record<string, any>;
+        // removing the intial context since it's already added to system prompt tool blocks the AI from firing duplicate RAG layout requests, preserving token caps!
+        const { ...mcpTools } = allTools as Record<string, any>;
 
         /* console.log(`[MCP Factory][${config.companyName}] Tool registry compilation successful. Filtered out 'initial_context'.`, mcpTools); */
 

@@ -112,9 +112,20 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Determine the dynamic process callback URL based on headers (works locally & in production)
+    const baseHost = (process.env.NEXT_PUBLIC_VERCEL_URL || process.env.VERCEL_URL || "https://aligoo-mockup.vercel.app")
+        .trim()
+        .replace(/\/+$/, "");
     const host = request.headers.get("host") || process.env.VERCEL_URL || "";
     const protocol = host.includes("localhost") ? "http" : "https";
     const processUrl = `${protocol}://${host}/api/webhook/telegram/process`;
+    const failureCallbackUrl = `${baseHost}/api/webhook/telegram/failure`;
+    // ─── 🟢 TELEMETRY LOGS PLACEMENT: AUDIT YOUR WEBHOOK PATHS ───
+    console.log(`\n🚀 [QStash Routing Matrix] CONSTRUCTED URL ENVELOPE:`);
+    console.log(`----------------------------------------------------------------------`);
+    console.log(`Target Processing Path: ${processUrl}`);
+    console.log(`Target Failure Callback: ${failureCallbackUrl}`);
+    console.log(`----------------------------------------------------------------------\n`);
+
 
     console.log(`[Webhook][${tenant.companyName}] Queuing Telegram update ${updateId || "unknown"} to isolated QStash target: ${processUrl}`);
 
@@ -124,8 +135,12 @@ export async function POST(request: NextRequest) {
         await tenantQStash.publishJSON({
             url: processUrl,
             body: { update, tenant },
-            // Dynamically pass their unique project Topic identifier parameters if needed by your setup
-            // topic: tenant.qstashTopicId 
+            retries: 2,
+            retryAfter: "5s",
+            // ─── 🛡️ THE FAIL-CLOSED DEADLETTER GATEWAY ───
+            // When delivery attempts are exhausted, QStash pushes the payload directly 
+            // to this route along with explicit error details.
+            failureUrl: failureCallbackUrl
         });
         console.log(`[Webhook][${tenant.companyName}] Task successfully queued inside tenant's unique QStash workspace`);
     } catch (err: any) {
