@@ -10,10 +10,10 @@ export type IntentType =
     | 'product_browse'
     | 'product_detail'
     | 'faq'
-    | 'greeting'
     | 'order'
     | 'qualification'
     | 'recommendation'
+    | 'unstructured_search'
     | 'unknown';
 
 export interface IntentResult {
@@ -48,9 +48,25 @@ const gateway = createGateway({
  */
 function checkInstantTriggers(text: string): IntentResult | null {
     const cleanText = text.toLowerCase().trim();
-
+    // 1. Core Telegram system platform anchors
     if (cleanText === "/start" || cleanText === "start") {
-        return { intent: "greeting", confidence: 1.0, language: 'en' };
+        return { intent: "qualification", confidence: 1.0, language: 'en' };
+    }
+
+    // 2. 🌍 Local English greeting string array list
+    const englishGreetings = ["hi", "hello", "hey", "good morning", "good afternoon", "greetings", "yo"];
+    if (englishGreetings.includes(cleanText)) {
+        // We route greetings locally into the 'qualification' funnel so the system prompts their needs cleanly
+        return { intent: "qualification", confidence: 1.0, language: 'en' };
+    }
+
+    // 3. 🌍 Local Amharic greeting string array list (Both script and transliterated Latin tokens)
+    const amharicGreetings = [
+        "ሰላም", "ሰላም ነው", "ታዲያስ", "እንደምን አደርክ", "እንደምን ዋልክ", "እንደምን አመሸህ", // Ge'ez Script
+        "selam", "selamnew", "tadiyas", "tadias", "marhaba", "ahlan" // Latin Transliterations
+    ];
+    if (amharicGreetings.includes(cleanText)) {
+        return { intent: "qualification", confidence: 1.0, language: 'am' };
     }
 
     return null;
@@ -94,7 +110,7 @@ export async function detectIntent(text: string, tenant: TenantContext): Promise
             // Using 'gemini-1.5-flash' to leverage the large 1500 req/day free pool.
             model: gateway('google/gemini-2.5-flash-preview-09-2025'),
             schema: z.object({
-                intent: z.enum(['product_browse', 'product_detail', 'faq', 'greeting', 'order', 'qualification', 'unknown', 'recommendation']),
+                intent: z.enum(['product_browse', 'product_detail', 'faq', 'order', 'qualification', 'unknown', 'recommendation', 'unstructured_search']),
                 confidence: z.number().min(0).max(1),
                 language: z.enum(['am', 'en']).describe("Detected language of the user text. 'am' for Amharic script/transliteration, 'en' for English."),
                 params: z.object({

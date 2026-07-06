@@ -15,60 +15,19 @@
 import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { createRedisState } from "@chat-adapter/state-redis";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig, TenantContext } from "@/types/tenant";
 import { createTenantClient } from "@/sanity/client";
-import { getBuyer, updateBuyerProfile, } from "./sanity/buyer";
+import { getBuyer } from "./sanity/buyer";
 import { handleOnboarding } from "./onboarding";
 import { detectIntent } from "./ai/intent";
-import {
-    buildSystemPrompt,
-    buildGreetingPrompt,
-    buildFallbackPrompt,
-    buildSalesPrompt,
-    buildInfoPrompt,
-    buildSupportPrompt,
-} from "./ai/prompts";
-import { buildSanityTools } from "./ai/tools";
-import { getProductList, getProductDetails, getFAQs } from "./sanity/queries";
-import { generateText } from "ai";
-import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
-import { createGateway } from '@ai-sdk/gateway';
-// ─── ADD THIS TO YOUR IMPORTS AT THE TOP OF bot.ts ───
-import { createTenantRedisClient } from "@/lib/upstash"; // 🟢 Reuse our existing dynamic pool factory
-// ─── Gateway Initialization ───────────────────────────────────────────────
-// Use the GOOGLE_API_KEY from your environment variables.
-// We explicitly set autoTokenFetching to true so you don't need to manage keys.
-const gateway = createGateway({
-    apiKey: process.env.AI_GATEWAY_API_KEY,
-});
-
-// ─── Redis State Adapter (shared across all adapters) ─────────────────────────
-
-const stateAdapter = createRedisState();
-
-// ─── Conversation History Helpers ─────────────────────────────────────────────
-// ─── 🔄 UPDATED CONVERSATION HISTORY HELPERS ───
-
-async function getConversationHistory(stateAdapter: any, threadId: string, limit = 8) {
-    try {
-        const key = `history:${threadId}`;
-        const history = await stateAdapter.getList?.(key);
-        if (!history || !Array.isArray(history)) return [];
-        return history.slice(-limit);
-    } catch (e) {
-        console.error("[Memory] Failed to load history:", e);
-        return [];
-    }
-}
-
-async function saveToHistory(stateAdapter: any, threadId: string, role: "user" | "assistant", content: string) {
-    try {
-        const key = `history:${threadId}`;
-        await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() });
-    } catch (e) {
-        console.error("[Memory] Failed to save history:", e);
-    }
-}
+import { createTenantRedisClient } from "@/lib/upstash";
+import { handleStructured } from "@/services/bot/structured";
+import { handleSearch } from "@/services/bot/search";
+import { handleGeneral } from "@/services/bot/general";
+import { BotServiceArgs } from "@/types/bot";
+import { handleOrder } from "@/services/bot/order";
+import { handleQualification } from "@/services/bot/qualification";
+import { handleRecommendation } from "@/services/bot/recommendation";
 
 // ─── Core AI Handler (tenant-aware) ───────────────────────────────────────────
 /**
@@ -77,110 +36,101 @@ async function saveToHistory(stateAdapter: any, threadId: string, role: "user" |
  *
  * @param thread - Chat framework thread object
  * @param message - Incoming message from the adapter
- * @param tenant - Resolved TenantContext for this bot instance
+ * @param tenantContext - Resolved TenantContext from the closure registry
  */
-async function handleAIResponse(thread: any, message: any, tenant: TenantContext) {
-    const tenantClient = createTenantClient(tenant);
+async function handleAIResponse(thread: any, message: any, tenantContext: TenantContext) {
+    const tenantClient = createTenantClient(tenantContext);
+
     // 1. 🔄 Fetch the fully isolated, type-safe Upstash Redis client instance block
-    const tenantRedisInstance = createTenantRedisClient(tenant);
+    const tenantRedisInstance = createTenantRedisClient(tenantContext);
 
     // 2. 🟢 FIXED TYPE SEGREGATION: Pass the native instance straight to the adapter
     const tenantStateAdapter = createRedisState({
-        client: tenantRedisInstance as any // Clears out the 'token' unknown property type error instantly!
+        client: tenantRedisInstance as any
     });
 
     const telegramId = message.from?.id?.toString() || message.chat?.id?.toString() || "unknown";
     const threadId = thread.id || telegramId;
-    const userName: string = message.from?.username ?? message.from?.first_name ?? "user";
 
     try {
-        console.log(`[Bot][${tenant.companyName}] Processing message for user ${telegramId}`);
+        console.log(`[Bot][${tenantContext.companyName}] Processing message for user ${telegramId}`);
         await thread.subscribe();
 
+        // 3. 🟢 RESOLVE USER TEXT SAFELY
         const userText = typeof message.text === "string"
             ? message.text
             : (message.content?.text ?? "Hello");
 
-        // Check onboarding status
+        // 4. Check onboarding verification boundaries before running AI engines
         const buyer = await getBuyer(telegramId, tenantClient);
         if (!buyer || buyer.onboardingStep !== "completed") {
-            const result = await handleOnboarding(thread, message, buyer, telegramId, tenant, tenantClient);
+            const result = await handleOnboarding(thread, message, buyer, telegramId, tenantContext, tenantClient);
             if (result.handled && result.response) {
                 await thread.post(result.response.text);
             }
             return;
         }
 
-        // Intent detection
-        const intentResult = await detectIntent(userText, tenant).catch(() => ({
-            intent: "unknown" as const,
-            confidence: 0,
-            params: undefined,
-        }));
+        // 5. ⚡ INVOLKE DYNAMIC INTENT DETECTOR INTERCEPTOR GATE
+        // We evaluate the user query against our Redis-cached cheap classifier model
+        const intentResult = await detectIntent(userText, tenantContext);
+        console.log(`[Gatekeeper][${tenantContext.companyName}] Intent parsed: ${intentResult.intent} (Conf: ${intentResult.confidence})`);
 
-        // Build prompt
-        const ctx = { userName, userMessage: userText, detectedIntent: intentResult.intent, tenant };
-        let sanityContext = "";
-        let prompt = "";
+        // Typecast context objects safely downstream to match our unified service interfaces
+        const castedTenantConfig = tenantContext as unknown as TenantConfig;
 
-        if (intentResult.intent === "product_browse") {
-            const products = await getProductList(tenantClient, intentResult.params?.category);
-            sanityContext = products.length > 0 ? JSON.stringify(products) : "No items found.";
-            prompt = buildSalesPrompt({ ...ctx, sanityContext });
-        } else if (intentResult.intent === "product_detail" && intentResult.params?.slug) {
-            const product = await getProductDetails(tenantClient, intentResult.params.slug);
-            sanityContext = product ? JSON.stringify(product) : "Item not found.";
-            prompt = buildSalesPrompt({ ...ctx, sanityContext });
-        } else if (intentResult.intent === "faq") {
-            const faqs = await getFAQs(tenantClient, intentResult.params?.faqCategory);
-            sanityContext = faqs.length > 0 ? JSON.stringify(faqs) : "No FAQs found.";
-            prompt = buildInfoPrompt({ ...ctx, sanityContext });
-        } else if (intentResult.intent === "order") {
-            prompt = buildSupportPrompt({ ...ctx, sanityContext: `Contact ${tenant.supportHandle}` });
-        } else if (intentResult.intent === "greeting") {
-            prompt = buildGreetingPrompt(ctx);
-        } else {
-            prompt = buildFallbackPrompt(ctx);
+        const args: BotServiceArgs = {
+            chatId: threadId,
+            thread,
+            intentResult,
+            tenant: castedTenantConfig,
+            userText,
+        };
+
+        // ─── 🛡️ SECURITY SHIELD A: CONFIDENCE THRESHOLD GUARD ───
+        if (intentResult.confidence < 0.6) {
+            console.log(`[Gatekeeper][${tenantContext.companyName}] Low classification confidence (${intentResult.confidence}). Routing to Route C.`);
+            return handleGeneral(args);
         }
 
-        // 🔄 FIXED: Reads context exclusively from their own database instance node
-        const history = await getConversationHistory(tenantStateAdapter, threadId, 8);
+        // 4. 🚦 DYNAMIC HYBRID SWITCH MATRIX
+        switch (intentResult.intent) {
 
+            // ✅ ROUTE A: Structured Price/SKU Catalog Browser
+            case "product_browse":
+            case "product_detail":
+                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Structured Service (Route A).`);
+                return handleStructured(args);
 
-        const tools = buildSanityTools(tenantClient, tenant);
-        const result = await generateText({
-            model: gateway('google/gemini-2.5-flash-lite'),
-            system: buildSystemPrompt(tenant),
-            messages: [
-                ...history.map((msg: any) => ({ role: msg.role, content: msg.content })),
-                { role: "user" as const, content: prompt },
-            ],
-            tools,
-            providerOptions: {
-                google: {
-                    useProduction: true, // This ensures v1 API, not v1beta
-                },
-                // Additionally, you can specify provider order
-                gateway: {
-                    order: ['google'], // Only use Google's production endpoint
-                    models: ['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview-09-2025'], // Fallback models
-                },
-            },
-            maxSteps: 5,
-        } as any);
+            // ✅ ROUTE B: Unstructured Meaning-Based Semantic Discovery
+            case "unstructured_search":
+            case "faq":
+                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Semantic Search Service (Route B).`);
+                return handleSearch(args);
 
-        const replyText = result.text || "Sorry, I couldn't generate a response right now.";
+            // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
+            case "recommendation":
+                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Recommendation Service (Route D).`);
+                return handleRecommendation(args);
 
-        // Persist to history
-        // 🔄 FIXED: Persists the new message pairs isolated inside their own cluster
-        await saveToHistory(tenantStateAdapter, threadId, "user", userText);
-        await saveToHistory(tenantStateAdapter, threadId, "assistant", replyText);
-        /*         await updateBuyerProfile(telegramId, tenantClient, {});
-                 */
-        await thread.post(replyText);
+            // ✅ ROUTE E: Cryptographic Transaction Order Compiler
+            case "order":
+                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Transactional Order Service (Route E).`);
+                return handleOrder(args);
 
+            // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
+            case "qualification":
+                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Onboarding Qualification Service (Route F).`);
+                return handleQualification(args);
+
+            // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
+            case "unknown":
+            default:
+                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to General Conversational Service (Route C).`);
+                return handleGeneral(args);
+        }
     } catch (error: any) {
-        console.error(`[Bot][${tenant.companyName}] ERROR in handleAIResponse:`, error?.message ?? error);
+        console.error(`[Bot][${tenantContext.companyName}] ERROR in handleAIResponse:`, error?.message ?? error);
         await thread.post("Sorry, I'm having trouble right now. Please try again.").catch(() => { });
     }
 }
@@ -190,17 +140,17 @@ async function handleAIResponse(thread: any, message: any, tenant: TenantContext
  * Creates a Chat adapter bot instance for a specific tenant.
  * Call this once per tenant when setting up adapters (not per-request).
  *
- * @param tenant - The TenantContext for this bot
+ * @param tenant - The TenantContext for this bot instance
  */
 export function createBotForTenant(tenant: TenantContext): Chat {
-    // Dynamically build their state parameters for structural framework caching boundaries
     // 1. 🔄 Fetch the fully isolated, type-safe Upstash Redis client instance block
     const tenantRedisInstance = createTenantRedisClient(tenant);
 
-    // 2. 🟢 FIXED TYPE SEGREGATION: Pass the native instance straight to the adapter
+    // 2. Pass the native instance straight to the adapter wrapper
     const tenantState = createRedisState({
-        client: tenantRedisInstance as any// Clears out the 'token' unknown property type error instantly!
+        client: tenantRedisInstance as any
     });
+
     const bot = new Chat({
         userName: `${tenant.subdomain}_bot`,
         adapters: {
@@ -214,7 +164,7 @@ export function createBotForTenant(tenant: TenantContext): Chat {
         lockScope: "channel",
     });
 
-    // Register handlers — inject tenant via closure
+    // Register handlers — inject tenant via clean closure mapping mechanics
     bot.onDirectMessage(async (thread, message) =>
         await handleAIResponse(thread, message, tenant)
     );

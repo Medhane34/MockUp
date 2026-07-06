@@ -61,7 +61,7 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig> {
         // Sanitize field configurations explicitly
         const dynamicConfig: TenantConfig = {
             ...result,
-            contextSlug: result.contextSlug || "sales-agent-context",
+            contextSlug: result.contextSlug || "sales-agent",
             globalContextFilter: result.globalContextFilter || '_type in ["product", "category", "faq"]'
         };
 

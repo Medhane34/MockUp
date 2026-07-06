@@ -44,6 +44,7 @@ export interface TenantContext {
     qstashNextSigningKey: string;    // 🟢 ADD THIS
 }
 export interface TenantConfig {
+    telegramBotToken: any;
     id: string;
     companyName: string;
     subdomain: string;
@@ -57,4 +58,7 @@ export interface TenantConfig {
     // 🟢 NEW: Sanity AI Context Infrastructure Configurations
     contextSlug: string;
     globalContextFilter: string;
+
+
 }
+
