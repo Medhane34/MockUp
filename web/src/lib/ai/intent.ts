@@ -1,7 +1,7 @@
 // src/lib/ai/intent.ts
 import { google } from "@ai-sdk/google"; // 🟢 Restored native type-safe provider import
 import { z } from "zod";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 import { generateObject } from "ai";
 import { createGateway } from '@ai-sdk/gateway';
 import { createTenantRedisClient } from "@/lib/upstash";
@@ -75,7 +75,7 @@ function checkInstantTriggers(text: string): IntentResult | null {
 /**
  * Enhanced Intent Detection with Tenant Context and Bilingual AI Processing
  */
-export async function detectIntent(text: string, tenant: TenantContext): Promise<IntentResult> {
+export async function detectIntent(text: string, tenant: TenantConfig): Promise<IntentResult> {
     // 1. Instant trigger check for baseline platform actions
     const structuralTrigger = checkInstantTriggers(text);
     if (structuralTrigger) {

@@ -1,7 +1,7 @@
 // src/lib/upstash.ts
 import { Redis } from "@upstash/redis";
 import { Client as QStashClient } from "@upstash/qstash";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 
 // ─── 🛡️ THE NUCLEAR MULTI-TENANT ENVIRONMENT PURGE SHIELD ───
 // We explicitly nullify Vercel's automated marketplace variables in runtime memory.
@@ -22,7 +22,7 @@ const tenantQStashCache = new Map<string, QStashClient>();
  * 🛠️ SECURE MULTI-TENANT REDIS INITIALIZER
  * Dynamically builds a REST-insulated client, bypassing Vercel's global environment variables.
  */
-export function createTenantRedisClient(tenant: Pick<TenantContext, 'id' | 'redisUrl' | 'redisToken' | 'companyName'>): Redis {
+export function createTenantRedisClient(tenant: Pick<TenantConfig, 'id' | 'redisUrl' | 'redisToken' | 'companyName'>): Redis {
   const cached = tenantRedisCache.get(tenant.id);
   if (cached) return cached;
 
@@ -86,7 +86,7 @@ export function createTenantRedisClient(tenant: Pick<TenantContext, 'id' | 'redi
 /**
  * DYNAMIC QSTASH FACTORY
  */
-export function createTenantQStashClient(tenant: Pick<TenantContext, 'id' | 'qstashToken' | 'companyName'>): QStashClient {
+export function createTenantQStashClient(tenant: Pick<TenantConfig, 'id' | 'qstashToken' | 'companyName'>): QStashClient {
   const cached = tenantQStashCache.get(tenant.id);
   if (cached) return cached;
 

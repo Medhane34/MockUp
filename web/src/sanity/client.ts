@@ -1,6 +1,6 @@
 // src/sanity/client.ts
 import { createClient, type SanityClient } from "next-sanity";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 
 /**
  * Platform admin client — connects to YOUR Sanity project.
@@ -25,7 +25,7 @@ const tenantClientCache = new Map<string, SanityClient>();
  * Creates (or returns a cached) Sanity client for a specific tenant's isolated project.
  * @param tenant - The resolved TenantContext for this request
  */
-export function createTenantClient(tenant: Pick<TenantContext, 'projectId' | 'dataset' | 'sanityApiToken' | 'companyName'>): SanityClient {
+export function createTenantClient(tenant: Pick<TenantConfig, 'projectId' | 'dataset' | 'sanityApiToken' | 'companyName'>): SanityClient {
     const cached = tenantClientCache.get(tenant.projectId);
     if (cached) return cached;
 

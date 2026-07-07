@@ -14,29 +14,15 @@
 
 import { generateCheckoutSessionToken } from "@/lib/checkout";
 import { createTenantRedisClient } from "@/lib/upstash";
-import { createRedisState } from "@chat-adapter/state-redis";
 import { cleanMarkdownStream } from "@/lib/telegram/format";
 import { streamText } from "ai";
 import { createGateway } from '@ai-sdk/gateway';
 import { BotServiceArgs } from "@/types/bot";
+import { saveToHistory } from "@/lib/ai/conversation";
 
 const gateway = createGateway({
     apiKey: process.env.AI_GATEWAY_API_KEY,
 });
-
-async function saveToHistory(
-    stateAdapter: any,
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-) {
-    try {
-        const key = `history:${threadId}`;
-        await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() });
-    } catch (e) {
-        console.error("[Memory Error] Failed to save transactional history:", e);
-    }
-}
 
 /**
  * 🟢 HANDLE ORDER TUNNEL GATING ENGINE
@@ -54,7 +40,6 @@ export async function handleOrder({
 
     // 1. Establish an isolated connection to this tenant's unique database cluster node
     const tenantRedisInstance = createTenantRedisClient(tenant);
-    const stateAdapter = createRedisState({ client: tenantRedisInstance as any });
 
     // 2. Extract and sanitize the targeted product SKU parameter code
     // Prioritize the structured parameter extracted by intentResult, falling back cleanly to user input
@@ -99,7 +84,9 @@ export async function handleOrder({
     const sandboxUrl = `${protocol}://${vercelHost}/checkout-sandbox?sessionToken=${sessionToken}&tenantId=${tenant.id}&telegramId=${chatId}&productSku=${targetProductSku}&productName=${encodeURIComponent(sessionPayload.productName)}`;
 
     const isAmharic = intentResult.language === 'am';
-
+    const formattedMessages = [
+        { role: "user" as const, content: `Acknowledge checkout for item SKU: ${targetProductSku}` }
+    ];
     // 6. Invoke streaming text via our Vercel AI Gateway provider to act as an enthusiastic closing agent
     const systemPrompt = `
 You are an enthusiastic, high-velocity checkout coordinator for ${tenant.companyName}.
@@ -115,11 +102,31 @@ CRITICAL SALES CLOSING INSTRUCTIONS:
 
     try {
         const result = streamText({
-            model: gateway('google/gemini-2.5-flash-lite'),
+            model: gateway('google/gemini-2.5-flash'),
             system: systemPrompt,
-            messages: [
-                { role: "user", content: `Acknowledge checkout for item SKU: ${targetProductSku}` }
-            ],
+            messages: formattedMessages,
+            providerOptions: {
+                gateway: {
+                    // 🔄 FIXED: Primary flagship model added to the front of the array list!
+                    models: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // 🔄 FIXED: Sets the precise sequence order for automated fallback switching
+                    order: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // ⏱️ VERCEL TIMEOUT INCORPORATION: 
+                    // Enforces a strict 4-second timeout limit per model invocation turn. 
+                    // If gemini-2.5-flash hangs for 4000ms, Vercel instantly cuts it off 
+                    // and routes the request to flash-lite, preserving execution limits!
+                    timeout: 2500,
+                    production: true
+                },
+            },
         });
 
         // 7. Inject the high-intent interactive checkout markup buttons row directly into the streaming transport
@@ -171,8 +178,8 @@ CRITICAL SALES CLOSING INSTRUCTIONS:
         }
         // Persist history asynchronously inside your parallelized transaction loop
         await Promise.all([
-            saveToHistory(stateAdapter, chatId, "user", userText),
-            saveToHistory(stateAdapter, chatId, "assistant", finalText),
+            saveToHistory(tenantRedisInstance, chatId, "user", userText),
+            saveToHistory(tenantRedisInstance, chatId, "assistant", finalText),
         ]).catch((err) => {
             console.error(`[Route E][${tenant.companyName}] History persistence failed:`, err);
         });

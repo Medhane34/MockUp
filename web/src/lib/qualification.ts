@@ -3,7 +3,7 @@ import { generateObject } from "ai";
 import { createGateway } from "@ai-sdk/gateway";
 import { z } from "zod";
 import { updateBuyerProfile } from './sanity/buyer';
-import type { TenantContext } from '@/types/tenant';
+import type { TenantConfig } from '@/types/tenant';
 
 export interface QualificationData {
     intentType?: string;
@@ -99,7 +99,7 @@ export async function processQualification(
     intentResult: any,
     userMessage: string,
     tenantClient: any,
-    tenant: TenantContext,
+    tenant: TenantConfig,
     existingBuyer: any,
     adaptiveRule: any | null // Added visibility of resolved rule for category threshold matching
 ) {

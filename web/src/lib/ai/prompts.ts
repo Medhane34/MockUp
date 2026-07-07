@@ -1,12 +1,12 @@
 // src/lib/ai/prompts.ts
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 
 export interface PromptContext {
     userName: string;
     userMessage: string;
     detectedIntent: string;
     sanityContext?: string;
-    tenant: TenantContext;
+    tenant: TenantConfig;
     userLanguage?: 'am' | 'en'; // Added language visibility into context payloads
 }
 
@@ -31,7 +31,7 @@ function getNicheActionLabel(niche: string): string {
  * Builds the AI system prompt for a given tenant.
  * Sets the baseline cross-language compliance parameters safely.
  */
-export function buildSystemPrompt(tenant: TenantContext): string {
+export function buildSystemPrompt(tenant: TenantConfig): string {
     if (tenant.systemPrompt?.trim()) {
         return tenant.systemPrompt;
     }

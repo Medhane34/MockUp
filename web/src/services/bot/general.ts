@@ -1,13 +1,13 @@
-// src/services/bot/structured.service.ts
+// src/services/bot/general.service.ts
 import { streamText } from "ai"
 import { cleanMarkdownStream, stripMarkdown } from "@/lib/telegram/format"
 import type { TenantConfig } from "@/types/tenant"
 import type { IntentResult } from "@/lib/ai/intent"
 import type { Thread } from "chat"
 import { createTenantRedisClient } from "@/lib/upstash"
-import { createRedisState } from "@chat-adapter/state-redis"
 import { createGateway } from '@ai-sdk/gateway';
 import { BotServiceArgs } from "@/types/bot"
+import { getConversationHistory, saveToHistory } from "@/lib/ai/conversation"
 // ─── Gateway Initialization ───────────────────────────────────────────────
 // Use the GOOGLE_API_KEY from your environment variables.
 // We explicitly set autoTokenFetching to true so you don't need to manage keys.
@@ -16,32 +16,6 @@ const gateway = createGateway({
 });
 
 
-async function getConversationHistory(stateAdapter: any, threadId: string, limit = 8) {
-    try {
-        const key = `history:${threadId}`
-        const history = await stateAdapter.getList?.(key)
-        if (!history || !Array.isArray(history)) return []
-        return history.slice(-limit)
-    } catch (e) {
-        console.error("[Memory] Failed to load history:", e)
-        return []
-    }
-}
-
-async function saveToHistory(
-    stateAdapter: any,
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-) {
-    try {
-        const key = `history:${threadId}`
-        await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() })
-    } catch (e) {
-        console.error("[Memory] Failed to save history:", e)
-    }
-}
-
 export async function handleGeneral({
     tenant,
     intentResult,
@@ -49,41 +23,62 @@ export async function handleGeneral({
     chatId,
     userText,
 }: BotServiceArgs): Promise<void> {
-    // 1. Tenant-isolated Redis state — match your bot.ts pattern exactly
+    // 1. Tenant-isolated Upstash Redis REST client (stateless HTTP — no connect() needed)
     const tenantRedisInstance = createTenantRedisClient(tenant)
-    // The Compatibility Shunt that stops the crash:
-    const stateAdapter = createRedisState({
-        client: {
-            // Redirect standard Key-Value commands directly to your working Upstash client
-            get: (key: string) => tenantRedisInstance.get(key),
-            set: (key: string, val: string) => tenantRedisInstance.set(key, val),
-            del: (key: string) => tenantRedisInstance.del(key),
-            // Mock the event listener hook to completely eliminate the .on() crash!
-            on: (event: string, handler: Function) => {
-                console.log(`[State Adapter Interface] Mocked listener registered for: ${event}`);
-            }
-        } as any
-    });
-    const history = await getConversationHistory(stateAdapter, chatId, 8)
 
+    const rawHistory = await getConversationHistory(tenantRedisInstance, chatId, tenant).catch((err) => {
+        console.error(`[Route C][${tenant.companyName}] History fetch failed:`, err.message);
+        return [];
+    });
+    const cleanHistory = Array.isArray(rawHistory) ? rawHistory : [];
+
+    // Always preserve and format at least the active user query message
+    const formattedMessages = [
+        ...cleanHistory.map((msg: any) => ({
+            role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: msg.content || ""
+        })),
+        { role: "user" as const, content: userText },
+    ];
+    // ─── 🛡️ FIX 2: RUNTIME VALIDATION SHIELD GUARDS ───
+    console.log(`[Route A][${tenant.companyName}] Compiled messages object array count: ${formattedMessages.length}`);
     // ✅ Fixed — wrap in try/catch consistent with Services A and B
     try {
         const result = streamText({
-            model: gateway('google/gemini-2.5-flash-lite'),
+            model: gateway('google/gemini-2.5-flash'),
             system: `You are a helpful assistant for ${tenant.companyName}.
 Respond in ${intentResult.language === 'am' ? 'Amharic' : 'English'}.`,
-            messages: [
-                ...history.map((msg: any) => ({ role: msg.role, content: msg.content })),
-                { role: "user" as const, content: userText },
-            ],
+            messages: formattedMessages,
+            providerOptions: {
+                gateway: {
+                    // 🔄 FIXED: Primary flagship model added to the front of the array list!
+                    models: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // 🔄 FIXED: Sets the precise sequence order for automated fallback switching
+                    order: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // ⏱️ VERCEL TIMEOUT INCORPORATION: 
+                    // Enforces a strict 4-second timeout limit per model invocation turn. 
+                    // If gemini-2.5-flash hangs for 4000ms, Vercel instantly cuts it off 
+                    // and routes the request to flash-lite, preserving execution limits!
+                    timeout: 2500,
+                    production: true
+                },
+            },
         })
 
         await thread.post(cleanMarkdownStream(result.textStream))
         const finalText = stripMarkdown(await result.text)
 
         await Promise.all([
-            saveToHistory(stateAdapter, chatId, "user", userText),
-            saveToHistory(stateAdapter, chatId, "assistant", finalText),
+            saveToHistory(tenantRedisInstance, chatId, "user", userText),
+            saveToHistory(tenantRedisInstance, chatId, "assistant", finalText),
         ]).catch((err) => {
             console.error(`[Route C][${tenant.companyName}] History persistence failed:`, err)
         })

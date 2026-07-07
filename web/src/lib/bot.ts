@@ -14,8 +14,7 @@
 
 import { Chat } from "chat";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
-import { createRedisState } from "@chat-adapter/state-redis";
-import type { TenantConfig, TenantContext } from "@/types/tenant";
+import { createRedisState } from "@chat-adapter/state-redis"; // Used only by Chat framework adapter factory
 import { createTenantClient } from "@/sanity/client";
 import { getBuyer } from "./sanity/buyer";
 import { handleOnboarding } from "./onboarding";
@@ -28,6 +27,8 @@ import { BotServiceArgs } from "@/types/bot";
 import { handleOrder } from "@/services/bot/order";
 import { handleQualification } from "@/services/bot/qualification";
 import { handleRecommendation } from "@/services/bot/recommendation";
+import { getConversationHistory } from "./ai/conversation";
+import { TenantConfig } from "@/types/tenant";
 
 // ─── Core AI Handler (tenant-aware) ───────────────────────────────────────────
 /**
@@ -36,101 +37,100 @@ import { handleRecommendation } from "@/services/bot/recommendation";
  *
  * @param thread - Chat framework thread object
  * @param message - Incoming message from the adapter
- * @param tenantContext - Resolved TenantContext from the closure registry
+ * @param tenantConfig - Resolved TenantConfig from the closure registry
  */
-async function handleAIResponse(thread: any, message: any, tenantContext: TenantContext) {
-    const tenantClient = createTenantClient(tenantContext);
+async function handleAIResponse(thread: any, message: any, tenantConfig: TenantConfig) {
+    const tenantClient = createTenantClient(tenantConfig);
 
-    // 1. 🔄 Fetch the fully isolated, type-safe Upstash Redis client instance block
-    const tenantRedisInstance = createTenantRedisClient(tenantContext);
-
-    // 2. 🟢 FIXED TYPE SEGREGATION: Pass the native instance straight to the adapter
-    const tenantStateAdapter = createRedisState({
-        client: tenantRedisInstance as any
-    });
+    // 1. Tenant-isolated Upstash Redis REST client (stateless HTTP — no connect() needed)
+    const tenantRedisInstance = createTenantRedisClient(tenantConfig);
 
     const telegramId = message.from?.id?.toString() || message.chat?.id?.toString() || "unknown";
     const threadId = thread.id || telegramId;
+    const chatId = threadId;
 
     try {
-        console.log(`[Bot][${tenantContext.companyName}] Processing message for user ${telegramId}`);
+        console.log(`[Bot][${tenantConfig.companyName}] Processing message for user ${telegramId}`);
         await thread.subscribe();
 
-        // 3. 🟢 RESOLVE USER TEXT SAFELY
+        // 4. 🔍 FETCH ISOLATED CONVERSATION HISTORY FROM UPSTASH CACHE
+        const rawHistory = await getConversationHistory(tenantRedisInstance, chatId, tenantConfig).catch((err) => {
+            console.error(`[Bot History Sync][${tenantConfig.companyName}] Fetch failure:`, err.message);
+            return [];
+        });
+        const cleanHistory = Array.isArray(rawHistory) ? rawHistory : [];
+
+        // 5. RESOLVE USER TEXT SAFELY
         const userText = typeof message.text === "string"
             ? message.text
             : (message.content?.text ?? "Hello");
 
-        // 4. Check onboarding verification boundaries before running AI engines
+        // 6. Check onboarding verification boundaries before running AI engines
         const buyer = await getBuyer(telegramId, tenantClient);
         if (!buyer || buyer.onboardingStep !== "completed") {
-            const result = await handleOnboarding(thread, message, buyer, telegramId, tenantContext, tenantClient);
+            const result = await handleOnboarding(thread, message, buyer, telegramId, tenantConfig, tenantClient);
             if (result.handled && result.response) {
                 await thread.post(result.response.text);
             }
             return;
         }
 
-        // 5. ⚡ INVOLKE DYNAMIC INTENT DETECTOR INTERCEPTOR GATE
-        // We evaluate the user query against our Redis-cached cheap classifier model
-        const intentResult = await detectIntent(userText, tenantContext);
-        console.log(`[Gatekeeper][${tenantContext.companyName}] Intent parsed: ${intentResult.intent} (Conf: ${intentResult.confidence})`);
-
-        // Typecast context objects safely downstream to match our unified service interfaces
-        const castedTenantConfig = tenantContext as unknown as TenantConfig;
+        // 7. ⚡ INVOLKE DYNAMIC INTENT DETECTOR INTERCEPTOR GATE
+        const intentResult = await detectIntent(userText, tenantConfig);
+        console.log(`[Gatekeeper][${tenantConfig.companyName}] Intent parsed: ${intentResult.intent} (Conf: ${intentResult.confidence})`);
 
         const args: BotServiceArgs = {
             chatId: threadId,
             thread,
             intentResult,
-            tenant: castedTenantConfig,
+            tenant: tenantConfig,
             userText,
         };
 
         // ─── 🛡️ SECURITY SHIELD A: CONFIDENCE THRESHOLD GUARD ───
         if (intentResult.confidence < 0.6) {
-            console.log(`[Gatekeeper][${tenantContext.companyName}] Low classification confidence (${intentResult.confidence}). Routing to Route C.`);
+            console.log(`[Gatekeeper][${tenantConfig.companyName}] Low classification confidence (${intentResult.confidence}). Routing to Route C.`);
             return handleGeneral(args);
         }
 
-        // 4. 🚦 DYNAMIC HYBRID SWITCH MATRIX
+        // 8. 🚦 TRIPLE-TRACK ROUTING DISPATCH MATRIX WITH CLEAN INTENT EXECUTORS
         switch (intentResult.intent) {
 
             // ✅ ROUTE A: Structured Price/SKU Catalog Browser
             case "product_browse":
             case "product_detail":
-                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Structured Service (Route A).`);
+            case "faq":
+                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Structured Service (Route A).`);
                 return handleStructured(args);
 
             // ✅ ROUTE B: Unstructured Meaning-Based Semantic Discovery
             case "unstructured_search":
-            case "faq":
-                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Semantic Search Service (Route B).`);
+                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Semantic Search Service (Route B).`);
                 return handleSearch(args);
 
             // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
             case "recommendation":
-                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Recommendation Service (Route D).`);
+                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Recommendation Service (Route D).`);
                 return handleRecommendation(args);
 
             // ✅ ROUTE E: Cryptographic Transaction Order Compiler
             case "order":
-                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Transactional Order Service (Route E).`);
+                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Transactional Order Service (Route E).`);
                 return handleOrder(args);
 
             // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
             case "qualification":
-                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to Onboarding Qualification Service (Route F).`);
+                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Onboarding Qualification Service (Route F).`);
                 return handleQualification(args);
 
             // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
             case "unknown":
             default:
-                console.log(`[Gatekeeper][${tenantContext.companyName}] Routing to General Conversational Service (Route C).`);
+                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to General Conversational Service (Route C).`);
                 return handleGeneral(args);
         }
     } catch (error: any) {
-        console.error(`[Bot][${tenantContext.companyName}] ERROR in handleAIResponse:`, error?.message ?? error);
+        console.error(`[Bot][${tenantConfig.companyName}] ERROR in handleAIResponse:`, error?.message ?? error);
         await thread.post("Sorry, I'm having trouble right now. Please try again.").catch(() => { });
     }
 }
@@ -140,23 +140,27 @@ async function handleAIResponse(thread: any, message: any, tenantContext: Tenant
  * Creates a Chat adapter bot instance for a specific tenant.
  * Call this once per tenant when setting up adapters (not per-request).
  *
- * @param tenant - The TenantContext for this bot instance
+ * @param tenantConfig - The TenantConfig interface source for this bot instance
  */
-export function createBotForTenant(tenant: TenantContext): Chat {
-    // 1. 🔄 Fetch the fully isolated, type-safe Upstash Redis client instance block
-    const tenantRedisInstance = createTenantRedisClient(tenant);
+export function createBotForTenant(tenantConfig: TenantConfig): Chat {
+    const tenantRedisInstance = createTenantRedisClient(tenantConfig);
 
-    // 2. Pass the native instance straight to the adapter wrapper
     const tenantState = createRedisState({
-        client: tenantRedisInstance as any
+        client: {
+            get: (key: string) => tenantRedisInstance.get(key),
+            set: (key: string, val: string) => tenantRedisInstance.set(key, typeof val === 'string' ? val : JSON.stringify(val)),
+            del: (key: string) => tenantRedisInstance.del(key),
+            connect: async () => Promise.resolve(),
+            on: (event: string, handler: Function) => { }
+        } as any
     });
 
     const bot = new Chat({
-        userName: `${tenant.subdomain}_bot`,
+        userName: `${tenantConfig.subdomain}_bot`,
         adapters: {
             telegram: createTelegramAdapter({
-                secretToken: tenant.telegramWebhookSecret,
-                botToken: tenant.telegramBotToken,
+                secretToken: tenantConfig.telegramWebhookSecret,
+                botToken: tenantConfig.telegramBotToken,
             }),
         },
         state: tenantState,
@@ -166,10 +170,10 @@ export function createBotForTenant(tenant: TenantContext): Chat {
 
     // Register handlers — inject tenant via clean closure mapping mechanics
     bot.onDirectMessage(async (thread, message) =>
-        await handleAIResponse(thread, message, tenant)
+        await handleAIResponse(thread, message, tenantConfig)
     );
     bot.onNewMention(async (thread, message) =>
-        await handleAIResponse(thread, message, tenant)
+        await handleAIResponse(thread, message, tenantConfig)
     );
 
     return bot;

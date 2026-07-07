@@ -1,6 +1,6 @@
 // src/lib/tenant.ts
 import { adminClient } from "@/sanity/client";
-import type { TenantConfig, TenantContext } from "@/types/tenant"; // Adapts to your shared type paths
+import type { TenantConfig } from "@/types/tenant"; // Adapts to your shared type paths
 
 // ─── 1. TYPE DEFINITIONS FOR THE MULTI-TENANT CONFIG TRACK ───
 
@@ -31,10 +31,17 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig> {
     console.log(`[Tenant Registry] Cache MISS. Querying Central Platform Registry for ID: ${cleanId}`);
 
     // Dynamic database resolution lookup query
+    // Ensure all platform, webhook, and AI context fields are requested together
     const query = `*[_type == "tenant" && (_id == $cleanId || _id match $cleanId)][0]{
         "id": _id,
         companyName,
         "subdomain": subdomain.current,
+        niche,
+        supportHandle,
+        systemPrompt,
+        conversionGoalDescription,
+        telegramBotToken,
+        telegramWebhookSecret,
         projectId,
         dataset,
         sanityApiToken,
@@ -42,8 +49,16 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig> {
         redisToken,
         qstashToken,
         qstashTopicId,
-        "contextSlug": contextSlug.current, // 🟢 Resolves your new slug field cleanly
-        globalContextFilter                 // 🟢 Resolves your new security filter field cleanly
+        qstashCurrentSigningKey,
+        qstashNextSigningKey,
+        "contextSlug": contextSlug.current,
+        globalContextFilter,
+        dailyMessageLimit,
+        monthlyAiTokenLimit,
+        currentMonthTokens,
+        monthlyAiCostLimit,
+        maxMemoryLimit,
+        status
     }`;
 
     try {
@@ -62,7 +77,9 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig> {
         const dynamicConfig: TenantConfig = {
             ...result,
             contextSlug: result.contextSlug || "sales-agent",
-            globalContextFilter: result.globalContextFilter || '_type in ["product", "category", "faq"]'
+            globalContextFilter: result.globalContextFilter || '_type in ["product", "category", "faq"]',
+            maxMemoryLimit: Number(result.maxMemoryLimit) || 5,
+            status: result.status || "trial"
         };
 
         // Seed the memory cache pool

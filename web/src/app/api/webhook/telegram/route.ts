@@ -1,6 +1,6 @@
 // src/app/api/webhook/telegram/route.ts
 import { NextRequest } from "next/server";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 import { adminClient } from "@/sanity/client";
 import { createTenantRedisClient, createTenantQStashClient } from "@/lib/upstash";
 
@@ -10,9 +10,9 @@ export const maxDuration = 10;
 // ─── Tenant Resolution Cache ───────────────────────────────────────────────────
 // Keyed by telegramWebhookSecret. TTL = 5 minutes.
 const TENANT_CACHE_TTL = 5 * 60 * 1000;
-const tenantBySecretCache = new Map<string, { tenant: TenantContext; expires: number }>();
+const tenantBySecretCache = new Map<string, { tenant: TenantConfig; expires: number }>();
 
-async function resolveTenantBySecret(secret: string): Promise<TenantContext | null> {
+async function resolveTenantBySecret(secret: string): Promise<TenantConfig | null> {
     // 1. Check cache first
     const cached = tenantBySecretCache.get(secret);
     if (cached && Date.now() < cached.expires) {
@@ -21,7 +21,7 @@ async function resolveTenantBySecret(secret: string): Promise<TenantContext | nu
 
     // 2. Query admin project for the matching tenant
     try {
-        const tenant = await adminClient.fetch<TenantContext | null>(
+        const tenant = await adminClient.fetch<TenantConfig | null>(
             `*[_type == "tenant" && telegramWebhookSecret == $secret && status in ["active", "trial"]][0]{
                 "id": _id,
                 companyName,

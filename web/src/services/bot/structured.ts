@@ -4,45 +4,16 @@ import { createTenantMCPClient } from "@/lib/mcp-client"
 import { streamText } from "ai"
 import { cleanMarkdownStream, stripMarkdown } from "@/lib/telegram/format"
 import { createTenantRedisClient } from "@/lib/upstash"
-import { createRedisState } from "@chat-adapter/state-redis"
 import { createGateway } from '@ai-sdk/gateway';
 import { BotServiceArgs } from "@/types/bot"
+import { getConversationHistory, saveToHistory } from "@/lib/ai/conversation"
+
 // ─── Gateway Initialization ───────────────────────────────────────────────
 // Use the GOOGLE_API_KEY from your environment variables.
 // We explicitly set autoTokenFetching to true so you don't need to manage keys.
 const gateway = createGateway({
     apiKey: process.env.AI_GATEWAY_API_KEY,
 });
-
-
-async function getConversationHistory(stateAdapter: any, threadId: string, limit = 8): Promise<any[]> {
-    try {
-        const key = `history:${threadId}`
-        const history = await stateAdapter.getList?.(key)
-        if (!history || !Array.isArray(history)) return []
-        return history.slice(-limit)
-    } catch (e) {
-        console.error("[Memory] Failed to load history safely:", e)
-        return [] // Safe baseline array fallback
-    }
-}
-
-
-async function saveToHistory(
-    stateAdapter: any,
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-) {
-    try {
-        const key = `history:${threadId}`
-        await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() })
-    } catch (e) {
-        console.error("[Memory] Failed to save history:", e)
-    }
-}
-
-
 
 export async function handleStructured({
     tenant,
@@ -51,38 +22,34 @@ export async function handleStructured({
     chatId,
     userText,
 }: BotServiceArgs): Promise<void> {
-    // 1. Tenant-isolated Redis state — match your bot.ts pattern exactly
+    // 1. Tenant-isolated Upstash Redis REST client (stateless HTTP — no connect() needed)
     const tenantRedisInstance = createTenantRedisClient(tenant)
-    // ─── 🛡️ THE COMPATIBILITY SHIELD INTERCEPTOR UPGRADE ───
-    // 🟢 FIXED: Added a mock 'connect' promise handler block to prevent 'is not connected' crashes!
-    const stateAdapter = createRedisState({
-        client: {
-            get: (key: string) => tenantRedisInstance.get(key),
-            set: (key: string, val: string) => tenantRedisInstance.set(key, typeof val === 'string' ? val : JSON.stringify(val)),
-            del: (key: string) => tenantRedisInstance.del(key),
-            connect: async () => Promise.resolve(), // Satisfies the internal initialization lock!
-            on: (event: string, handler: Function) => { }
-        } as any
-    });
+
     // 2. Session-derived groqFilter — never from client input
-    /*  const groqFilter = `_type in ["product", "category"] && tenantId == "${tenant.id}"`
-     */
     // If each tenant has their own project — project boundary IS the tenant boundary
-    // A simpler filter may be correct:
     const groqFilter = `_type in ["product", "category", "faq"]`
-    // 3. Warm-load schema from Redis — eliminates initial_context tool call
-    const initialContext = await getCachedSchema(tenant)
+
+    // ─── ⚡ PARALLEL INIT: Run all 3 independent async operations concurrently ───
+    // Previously these ran sequentially: getCachedSchema → createTenantMCPClient → getConversationHistory
+    // createTenantMCPClient alone makes 3 internal network calls (getTenantConfig + Sanity HTTP + mcp.tools())
+    // which could consume 3–8s BEFORE the two cheap Redis calls even started.
+    // Promise.all lets all 3 race in parallel — total time = slowest one, not their sum.
+    // Upstash REST is stateless — lrange never blocks on a connection handshake.
+    console.log(`[Route A][${tenant.companyName}] Starting parallel init: schema + MCP + history...`);
+    const [initialContext, { mcp, mcpTools }, rawHistory] = await Promise.all([
+        getCachedSchema(tenant),
+        createTenantMCPClient(tenant.id, groqFilter),
+        getConversationHistory(tenantRedisInstance, chatId, tenant).catch((err) => {
+            console.error(`[Route A][${tenant.companyName}] History fetch failed:`, err.message);
+            return [];
+        }),
+    ]);
+    console.log(`[Route A][${tenant.companyName}] Parallel init complete.`);
+
     if (!initialContext) {
         throw new Error(`[Route A][${tenant.companyName}] Schema context unavailable.`)
     }
 
-    // 4. Tenant-scoped MCP client with groqFilter boundary
-    const { mcp, mcpTools } = await createTenantMCPClient(tenant.id, groqFilter)
-    // ─── 🛡️ FIX 1: DEFENSIVE CONVERSATION MEMORY COMPILATION LAYER ───
-    const rawHistory = await getConversationHistory(stateAdapter, chatId, 8).catch((err) => {
-        console.error(`[Route A][${tenant.companyName}] History fetch catch barrier active:`, err);
-        return [];
-    });
     const cleanHistory = Array.isArray(rawHistory) ? rawHistory : [];
 
     // Always preserve and format at least the active user query message
@@ -96,11 +63,6 @@ export async function handleStructured({
     // ─── 🛡️ FIX 2: RUNTIME VALIDATION SHIELD GUARDS ───
     console.log(`[Route A][${tenant.companyName}] Compiled messages object array count: ${formattedMessages.length}`);
 
-    // 5. Load conversation history — match your bot.ts pattern
-    const history = await getConversationHistory(stateAdapter, chatId, 8)
-    /*  const slugHint = intentResult.params?.slug
-         ? `The user is asking about a specific item with slug: "${intentResult.params.slug}". Query for this item directly.`
-         : '' */
     const slugHint = intentResult.intent === 'product_detail' && intentResult.params?.slug
         ? `The user is asking about a specific product. Slug hint: "${intentResult.params.slug}". 
      Try: *[_type == "product" && slug.current == "${intentResult.params.slug}"][0]{...}
@@ -213,7 +175,6 @@ ${slugHint}
                 execute: async (args: any) => {
                     console.log(`[Route A][Tool Invocation: ${toolName}] Executing query: ${args.query}`);
                     // Route the request securely through your trace-correlated JSON-RPC context engine file
-                    const { runSanityContextQuery } = await import("@/lib/sanity/context");
                     return await runSanityContextQuery(tenant, args.query);
                 }
             };
@@ -221,12 +182,30 @@ ${slugHint}
      */
 
     try {
+        // ─── 🛡️ FIX: Capture final text in onFinish to avoid double-consuming the stream ───
+        // Previously: `await result.text` was called AFTER thread.post had already drained the stream
+        // — causing a hang that triggered the 60s Vercel timeout.
+        // Now: text is captured inside onFinish, stream is consumed exactly once via thread.post.
+        let capturedFinalText = ""
+
+        // ─── 🕐 ABSOLUTE TIME BUDGET GUARD ───
+        // Vercel's limit is 60s. Pre-route work (intent, registry, buyer) consumes ~3-5s.
+        // We give the AI stream a hard 25s deadline, leaving 30+ seconds of margin.
+        // When this fires, abortSignal propagates into streamText AND thread.post's for-await loop,
+        // causing both to exit cleanly while onFinish captures whatever text was generated.
+        const streamAbortController = new AbortController()
+        const streamDeadline = setTimeout(() => {
+            console.warn(`[Route A][${tenant.companyName}] Stream deadline exceeded — aborting AI stream.`)
+            streamAbortController.abort()
+        }, 25000)
+
         const result = streamText({
             model: gateway('google/gemini-2.5-flash'),
             system: systemPrompt,
             messages: formattedMessages,
             tools: mcpTools,
-            maxRetries: 3,
+            maxRetries: 1, // ⬇️ Reduced from 3 — each retry on timeout multiplies latency
+            abortSignal: streamAbortController.signal, // 🔌 True kill switch for the stream
             providerOptions: {
                 gateway: {
                     // 🔄 FIXED: Primary flagship model added to the front of the array list!
@@ -241,17 +220,16 @@ ${slugHint}
                         'google/gemini-2.5-flash-lite',
                         'google/gemini-2.5-flash-preview-09-2025'
                     ],
-                    // ⏱️ VERCEL TIMEOUT INCORPORATION: 
-                    // Enforces a strict 4-second timeout limit per model invocation turn.
-                    // If gemini-2.5-flash hangs for 4000ms, Vercel instantly cuts it off 
-                    // and routes the request to flash-lite, preserving execution limits!
-                    timeout: 2500,
+                    // ⏱️ VERCEL TIMEOUT INCORPORATION:
+                    // 8 seconds gives gemini-2.5-flash enough time for a single MCP tool
+                    // round-trip (GROQ query → network → response). 2500ms was too low
+                    // and caused cascading fallbacks that multiplied latency.
+                    timeout: 8000,
                     production: true
                 },
             },
-            stopWhen: ({ steps }) => steps.length >= 3,
+            stopWhen: ({ steps }) => steps.length >= 2, // ⬇️ Reduced from 3 — fewer MCP round-trips
             onFinish: (event) => {
-                // ✅ Add this — shows exactly what the model produced
                 console.log(`[Route A] Finish reason: ${event.finishReason}`)
                 console.log(`[Route A] Steps taken: ${event.steps?.length}`)
                 console.log(`[Route A] Final text length: ${event.text?.length}`)
@@ -262,27 +240,33 @@ ${slugHint}
                     console.error(`[Route A] Last step:`, JSON.stringify(event.steps?.at(-1)))
                 }
 
+                // ✅ Capture text here — avoids a second await after stream is consumed
+                capturedFinalText = event.text ?? ""
+                clearTimeout(streamDeadline) // Cancel deadline if stream finishes naturally first
                 safeMcpClose()
             },
         })
 
-        // ✅ Stream progressively to Telegram via rate-limit-aware abstraction
-        // thread.post() handles chunking — NOT raw SSE to browser
-        // ✅ Enhanced — log persistence failures explicitly, don't swallow them
+        // ✅ Consume the stream exactly ONCE via thread.post.
+        // The abortController.signal is wired into streamText above — when it fires,
+        // streamText terminates the textStream generator, which ends the for-await in
+        // route.ts naturally without needing to pass the signal here.
         await thread.post(cleanMarkdownStream(result.textStream))
-        const finalText = stripMarkdown(await result.text)
-        // ✅ Guard against empty model response
-        const safeText = finalText?.trim()
-            ? finalText
-            : "I found your catalog but couldn't format a response. Please try again."
+
+        // Ensure deadline timer is always cleared (onFinish clears it on success; clear here on error path)
+        clearTimeout(streamDeadline)
+
+        // Use text captured from onFinish (already resolved by the time stream drains)
+        const safeText = stripMarkdown(capturedFinalText).trim()
+            || "I found your catalog but couldn't format a response. Please try again."
 
         // Persist both in parallel — faster, and both failures are visible
         await Promise.all([
-            saveToHistory(stateAdapter, chatId, "user", userText),
-            saveToHistory(stateAdapter, chatId, "assistant", finalText),
+            saveToHistory(tenantRedisInstance, chatId, "user", userText),
+            saveToHistory(tenantRedisInstance, chatId, "assistant", safeText),
         ]).catch((err) => {
             // Non-blocking — user already received response
-            // But log explicitly so you can detect history drift
+            // Log explicitly so you can detect history drift
             console.error(`[Route A][${tenant.companyName}] History persistence failed:`, err)
         })
 

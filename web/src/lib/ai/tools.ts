@@ -2,7 +2,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { SanityClient } from "next-sanity";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 import { getProductList, getProductDetails, getFAQs, getProductRecommendations } from "@/lib/sanity/queries";
 
 /**
@@ -38,7 +38,7 @@ function parsePriceRange(budgetRange?: string): { min: number; max: number } {
  * @param tenantClient - Pre-built Sanity client for this tenant's project
  * @param tenant - TenantContext for niche-aware descriptions
  */
-export function buildSanityTools(tenantClient: SanityClient, tenant: TenantContext) {
+export function buildSanityTools(tenantClient: SanityClient, tenant: TenantConfig) {
     const itemLabel = tenant.niche === 'services'
         ? 'services'
         : tenant.niche === 'travel'

@@ -11,24 +11,10 @@
  * multi-choice survey button arrays natively to qualify customer budgets and timelines.
  */
 
+import { saveToHistory } from "@/lib/ai/conversation";
 import { createTenantRedisClient } from "@/lib/upstash";
 import { BotServiceArgs } from "@/types/bot";
-import { createRedisState } from "@chat-adapter/state-redis";
 
-
-async function saveToHistory(
-    stateAdapter: any,
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-) {
-    try {
-        const key = `history:${threadId}`;
-        await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() });
-    } catch (e) {
-        console.error("[Memory Error] Qualification history log failed:", e);
-    }
-}
 
 /**
  * 🟢 HANDLE BUYER FUNNEL QUALIFICATION SURVEY
@@ -42,9 +28,8 @@ export async function handleQualification({
 }: BotServiceArgs): Promise<void> {
     console.log(`[Route F][${tenant.companyName}] Launching interactive BANT qualification matrix...`);
 
-    // Initialize tenant-isolated Redis database states
+    // Tenant-isolated Upstash Redis REST client (stateless HTTP — no connect() needed)
     const tenantRedisInstance = createTenantRedisClient(tenant);
-    const stateAdapter = createRedisState({ client: tenantRedisInstance as any });
 
     const isAmharic = intentResult.language === 'am';
 
@@ -98,8 +83,8 @@ export async function handleQualification({
         }
         // 4. Commit conversational history parameter states inside your parallelized transaction loop
         await Promise.all([
-            saveToHistory(stateAdapter, chatId, "user", userText),
-            saveToHistory(stateAdapter, chatId, "assistant", stripHtmlTags(surveyNoticeText)),
+            saveToHistory(tenantRedisInstance, chatId, "user", userText),
+            saveToHistory(tenantRedisInstance, chatId, "assistant", stripHtmlTags(surveyNoticeText)),
         ]).catch((err) => {
             console.error(`[Route F][${tenant.companyName}] History logging failed:`, err);
         });

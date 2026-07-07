@@ -1,64 +1,56 @@
 // src/types/tenant.ts
+
 /**
- * TenantContext — the single source of truth for all tenant-specific data.
- * Resolved once per request in the webhook route and passed down the entire call stack.
- * Never accessed via global env vars in tenant-scoped code.
+ * 📦 UNIFIED TENANT CONFIGURATION INTERFACE
+ * The single source of truth for all multi-tenant environmental metadata.
+ * Resolved once per incoming request and passed down across the entire call stack.
  */
-export interface TenantContext {
-    /** Sanity _id from the platform admin project */
+export interface TenantConfig {
+    /** Sanity document tracking ID from the central platform administration registry */
     id: string;
     /** Human-readable company name (e.g., "Aligoo Store") */
     companyName: string;
-    /** Subdomain slug (e.g., "aligoo") */
+    /** Subdomain unique slug string (e.g., "aligoo") */
     subdomain: string;
-    /** Business niche — drives AI persona and tool descriptions */
+    /** Business operational classification niche (e.g., 'ecommerce', 'services') */
     niche: 'ecommerce' | 'services' | 'travel' | string;
-    /** Telegram support handle used in AI responses (e.g., "@aligoo_support") */
+    /** Telegram customer service handle injected into chatbot frames (e.g., "@aligoo_support") */
     supportHandle: string;
-    /** Optional custom AI system prompt. If absent, a niche-based default is generated. */
+    /** Optional custom merchant-level AI system instruction prompt string override */
     systemPrompt?: string;
-    /** Plain-language description of the conversion goal for the AI */
+    /** Plain-language summary directive outlining conversion target flows */
     conversionGoalDescription?: string;
-    /** Tenant's Telegram bot token */
+
+    // ─── 🤖 TELEGRAM BOT ADAPTER CREDENTIALS ───
     telegramBotToken: string;
-    /** Secret used to validate incoming Telegram webhook headers */
     telegramWebhookSecret: string;
-    /** Tenant's own Sanity.io project ID */
-    projectId: string;
-    /** Tenant's Sanity dataset (usually "production") */
-    dataset: string;
-    /** Read/write API token for the tenant's Sanity project */
-    sanityApiToken: string;
-    /** Max AI messages allowed per day across all users */
-    dailyMessageLimit: number;
-    /** Tenant account status */
-    status: 'active' | 'trial' | 'suspended';
-    redisUrl: string;
-    redisToken: string;
-    qstashToken: string;
-    qstashTopicId: string;
-    monthlyAiTokenLimit: number;
-    currentMonthTokens: number;
-    monthlyAiCostLimit: number;
-    qstashCurrentSigningKey: string;  // 🟢 ADD THIS
-    qstashNextSigningKey: string;    // 🟢 ADD THIS
-}
-export interface TenantConfig {
-    telegramBotToken: any;
-    id: string;
-    companyName: string;
-    subdomain: string;
+
+    // ─── 🧠 SANITY WORKSPACE CONNECTIONS ───
     projectId: string;
     dataset: string;
     sanityApiToken: string;
+
+    // ─── 💾 UPSTASH REDIS INFRASTRUCTURE INSTANCES ───
     redisUrl: string;
     redisToken: string;
+
+    // ─── 🚀 QSTASH BACKGROUND QUEUE TOPICS ───
     qstashToken: string;
     qstashTopicId: string;
-    // 🟢 NEW: Sanity AI Context Infrastructure Configurations
+    qstashCurrentSigningKey: string;
+    qstashNextSigningKey: string;
+
+    // ─── 🟢 SANITY AI CONTEXT MCP RUNTIME ENGINE CONFIGS ───
     contextSlug: string;
     globalContextFilter: string;
 
-
+    // ─── 📈 ACCOUNTING, SAAS TIERS, AND MEMORY QUOTAS ───
+    dailyMessageLimit: number;
+    monthlyAiTokenLimit: number;
+    currentMonthTokens: number;
+    monthlyAiCostLimit: number;
+    /** Maximum conversation history dialogue rows to load into memory arrays per turn */
+    maxMemoryLimit: number;
+    /** Account subscription access state parameter string */
+    status: 'active' | 'trial' | 'suspended';
 }
-

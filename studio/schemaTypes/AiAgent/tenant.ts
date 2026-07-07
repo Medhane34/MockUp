@@ -193,6 +193,13 @@ export default {
    */
         // ─── 10. AI Usage Limits & Billing ──────────────────────────────────
         {
+            name: 'maxMemoryLimit',
+            title: 'Max Memory Limit',
+            type: 'number',
+            initialValue: 5, // messages
+            description: 'Maximum amount of AI memory this tenant can use per month',
+        },
+        {
             name: 'monthlyAiTokenLimit',
             title: 'Monthly AI Token Limit',
             type: 'number',

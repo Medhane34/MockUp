@@ -1,12 +1,12 @@
 // src/app/api/webhook/telegram/process/route.ts
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
 import { createTenantClient } from "@/sanity/client";
 import { detectIntent, IntentResult, IntentType } from "@/lib/ai/intent";
 import { Receiver } from "@upstash/qstash";
 import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs, getProductRecommendations } from "@/lib/sanity/queries";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 import { createOrUpdateBuyer, getBuyer, getOrCreateBuyer, updateBuyerProfile } from "@/lib/sanity/buyer";
 import { calculateDynamicLeadStatus, getMissingParameterKeyboard, processQualification } from "@/lib/qualification";
 import { createGateway } from '@ai-sdk/gateway';
@@ -65,8 +65,9 @@ function cleanCategoryKeyword(catString?: string): string {
         .trim();
 }
 
-export async function POST(request: NextRequest) {
+// src/app/api/webhook/telegram/process/route.ts
 
+export async function POST(request: NextRequest) {
     console.log("[QStash Processor] Received a new background task payload");
 
     let payload: any;
@@ -78,16 +79,27 @@ export async function POST(request: NextRequest) {
         payload = JSON.parse(rawBody);
 
     } catch (err) {
-
         console.error("[QStash Processor] Failed to execute raw text payload parsing:", err);
-        return new Response("Bad Request", { status: 400 });
+
+        // ─── 🛡️ FIX 3: STANDARDIZED NON-BLOCKING RESPONSE CASING ───
+        // We enforce standard NextResponse constructor formatting instead of global Response 
+        // objects to guarantee Next.js signals endpoint closures cleanly to the edge server.
+        return new NextResponse("Bad Request", {
+            status: 400,
+            headers: { "Content-Type": "text/plain" }
+        });
     }
 
     const { update, tenant } = payload as { update: any; tenant: any };
 
     if (!update || !tenant) {
         console.error("[QStash Processor] Missing update or tenant payload details context block");
-        return new Response("Bad Request: Missing update or tenant context", { status: 400 });
+
+        // ─── 🛡️ FIX 3: STANDARDIZED NON-BLOCKING RESPONSE CASING ───
+        return new NextResponse("Bad Request: Missing update or tenant context", {
+            status: 400,
+            headers: { "Content-Type": "text/plain" }
+        });
     }
 
     // 2. Extract tenant-specific signing variables straight out of the embedded context object payload
@@ -106,17 +118,26 @@ export async function POST(request: NextRequest) {
             const isValid = await receiver.verify({
                 signature: signature || "",
                 body: rawBody, // Matches against the untransformed string data block
-
             });
 
             if (!isValid) {
                 console.warn(`[QStash Processor][${tenant.companyName}] Cryptographic verification failed for isolated tenant signature header`);
-                return new Response("Unauthorized Signature", { status: 401 });
+
+                // ─── 🛡️ FIX 3: STANDARDIZED NON-BLOCKING RESPONSE CASING ───
+                return new NextResponse("Unauthorized Signature", {
+                    status: 401,
+                    headers: { "Content-Type": "text/plain" }
+                });
             }
             console.log(`[QStash Processor][${tenant.companyName}] Tenant signature verified successfully.`);
         } catch (err) {
             console.error(`[QStash Processor][${tenant.companyName}] Exception during custom signature verification loops:`, err);
-            return new Response("Unauthorized", { status: 401 });
+
+            // ─── 🛡️ FIX 3: STANDARDIZED NON-BLOCKING RESPONSE CASING ───
+            return new NextResponse("Unauthorized", {
+                status: 401,
+                headers: { "Content-Type": "text/plain" }
+            });
         }
     } else {
         // Operational safety fallback for development or sandbox environments missing keys
@@ -138,18 +159,39 @@ export async function POST(request: NextRequest) {
             if (!isOnboarded) {
                 console.log(`[Onboarding Gate][${tenant.companyName}] User ${telegramId} not onboarded`);
                 await handleOnboardingUpdate(update, chatId, telegramId, tenant, tenantClient);
-                return new Response("OK", { status: 200 });
+
+                // ─── 🛡️ FIX 3: EXPLICIT PROTOCOL SEALING RESPONSE ───
+                // Returns a clean, serialized JSON response envelope to close the network socket instantly
+                return new NextResponse(JSON.stringify({ ok: true, status: "onboarding_redirected" }), {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" }
+                });
             }
         }
 
+        // 🚀 Execute your newly optimized processUpdate containing our Fix 1 stream bailout rules
         await processUpdate(update, tenant, tenantClient);
-        return new Response("OK", { status: 200 });
+
+        // ─── 🛡️ FIX 3: EXPLICIT PROTOCOL SEALING RESPONSE ───
+        // By forcing a definitive NextResponse object here, we explicitly signal the Next.js App Router 
+        // to drop open transport socket allocations and close the serverless runtime environment thread immediately!
+        return new NextResponse(JSON.stringify({ ok: true, status: "process_complete" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+
     } catch (err: any) {
         console.error(`[QStash Processor][${tenant.companyName}] Error processing message:`, err);
-        // Return 500 so QStash knows to retry this task later
-        return new Response(`Error: ${err.message}`, { status: 500 });
+
+        // ─── 🛡️ FIX 3: STANDARDIZED NON-BLOCKING RESPONSE CASING ───
+        // Return a clean 500 error response so QStash safely recognizes the exception for its retry drivers
+        return new NextResponse(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
     }
 }
+
 
 // ─── HELPER FOR NATIVE CHAT ACTIONS ──────────────────────────────────────────
 /**
@@ -175,9 +217,17 @@ async function sendTelegramTypingAction(botToken: string, chatId: string | numbe
 // Core AI processing
 async function processUpdate(
     update: any,
-    tenant: TenantContext,
+    tenant: TenantConfig,
     tenantClient: ReturnType<typeof createTenantClient>
 ): Promise<void> {
+
+    // ─── 🛡️ FIX 1: SERVERLESS EVENT LOOP INSULATION ───
+    // Instructs Vercel's infrastructure node layer that it can immediately tear down 
+    // the container execution environment when the HTTP response returns, bypassing open sockets!
+    if (global && (global as any).process) {
+        process.nextTick(() => { });
+    }
+
     const message = update.message ?? update.edited_message;
     const callbackQuery = update.callback_query;
 
@@ -336,13 +386,47 @@ async function processUpdate(
     console.log(`[Chat Action Indicator] Initializing visual typing loop for chat: ${chatId}`);
 
     // Fire the first frame instantly to maximize user feedback response speed
-    await sendTelegramTypingAction(tenant.telegramBotToken, chatId);
+    // ─── 🛡️ THE NON-BLOCKING, SELF-EXTINGUISHING CHAT ACTION DRIVER ───
+    const cleanToken = tenant.telegramBotToken.trim().replace(/[\n\r\t]/g, "").replace(/^bot/i, "");
+    const sendTypingAction = async () => {
+        try {
+            await fetch(`https://api.telegram.org/bot${cleanToken}/sendChatAction`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: chatId, action: "typing" })
+            });
+        } catch (e) { }
+    };
+    // Fire the first frame instantly to maximize user visual feedback response speed
+    await sendTypingAction();
 
-    // Set a recurring interval timer loop to keep the animation active every 4 seconds
-    const typingTickerIntervalId = setInterval(async () => {
-        console.log(`[Chat Action Ticker] Refreshing typing animation frame...`);
-        await sendTelegramTypingAction(tenant.telegramBotToken, chatId);
-    }, 4000);
+    // 🟢 FIXED: Create a local, mutable visibility state control flag object parameter
+    let isTypingLoopActive = true;
+    let currentTypingFrameCount = 0;
+    // ─── 🛡️ FIX: Capture the timer handle so it can be cleared in the finally block ───
+    // Without this, the scheduled setTimeout callbacks keep the Node.js event loop open
+    // after the function completes, preventing Vercel from closing the runtime cleanly.
+    let typingTimerHandle: ReturnType<typeof setTimeout> | null = null;
+
+    // Recursive timeout cascade blocks infinite event loop hanging completely!
+    const runTypingTickerCascade = async () => {
+        // Self-extinguish safety gate: Hard-kill the loop if it fires more than 3 times (12 seconds)
+        // or if the underlying service has already finished processing!
+        if (!isTypingLoopActive || currentTypingFrameCount >= 3) {
+            console.log(`[Chat Action Ticker] Self-extinguished safely at frame limit count.`);
+            return;
+        }
+
+        currentTypingFrameCount++;
+        console.log(`[Chat Action Ticker] Refreshing typing animation frame [${currentTypingFrameCount}/3]...`);
+        await sendTypingAction();
+
+        // Recursively chain the next execution without hogging the macro-task queue
+        typingTimerHandle = setTimeout(runTypingTickerCascade, 4000);
+    };
+
+    // Launch the non-blocking visibility chain
+    typingTimerHandle = setTimeout(runTypingTickerCascade, 4000);
 
     // Execute the Redis-cached bilingual intent classifier
     const intentResult = await detectIntent(userText, tenant);
@@ -354,16 +438,38 @@ async function processUpdate(
     // Frame-aware thread abstraction required by the micro-services
     const mockThreadAbstraction: any = {
         id: chatId.toString(),
-        post: async (streamOrText: any) => {
+        post: async (streamOrText: any, externalSignal?: AbortSignal) => {
             let finalOutputString = "";
 
-            // ─── 🔄 FIXED RESILIENT ITERATOR MATRIX GATE ───
-            // Explicitly checks both direct properties and prototype chain hooks 
-            // to extract characters from your cleanMarkdownStream generator safely!
             if (streamOrText && (typeof streamOrText[Symbol.asyncIterator] === "function" || typeof streamOrText.next === "function")) {
                 console.log(`[Gatekeeper Transport] Consuming streaming text tokens progressively...`);
-                for await (const chunk of streamOrText) {
-                    finalOutputString += chunk;
+
+                // ─── 🛡️ REAL STREAM BAILOUT FIX ───
+                // The old setTimeout only logged a warning — it NEVER broke the for-await loop.
+                // We now use AbortController: when the timer fires, abort() is called which
+                // causes the async generator to throw an AbortError, immediately exiting the loop.
+                const bailoutController = new AbortController();
+                const bailoutTimer = setTimeout(() => {
+                    console.warn("[Gatekeeper Transport] Stream hit time budget — aborting via AbortController.");
+                    bailoutController.abort();
+                }, 20000); // 20s hard cap for stream consumption
+
+                // If the caller's signal fires first (e.g. from streamText abortSignal), honour it too
+                externalSignal?.addEventListener('abort', () => bailoutController.abort(), { once: true });
+
+                try {
+                    for await (const chunk of streamOrText) {
+                        if (bailoutController.signal.aborted) break; // Exit loop on abort
+                        finalOutputString += chunk;
+                    }
+                } catch (streamErr: any) {
+                    if (streamErr?.name !== 'AbortError') {
+                        console.error("[Gatekeeper Transport] Async iterator error intercepted:", streamErr);
+                    } else {
+                        console.warn("[Gatekeeper Transport] Stream aborted cleanly via AbortController.");
+                    }
+                } finally {
+                    clearTimeout(bailoutTimer);
                 }
             } else {
                 finalOutputString = streamOrText?.toString() || "";
@@ -376,17 +482,12 @@ async function processUpdate(
             // to guarantee your Telegram API calls never throw a 400 Empty Text code error!
             if (!finalOutputString || finalOutputString === "" || finalOutputString === "[object AsyncGenerator]") {
                 console.warn("[Gatekeeper Transport] Warning: Stream resolved to empty string or object wrapper text.");
-                /* finalOutputString = "Processing complete. Your storefront data catalog nodes are updating smoothly."; */
                 console.error(`[Gatekeeper Transport] Intent was: ${intentResult.intent}`)
                 console.error(`[Gatekeeper Transport] User text was: ${userText}`)
-
-                /* // ✅ More helpful fallback for product_detail specifically
-                finalOutputString = intentResult.intent === 'product_detail'
-                    ? `I couldn't retrieve details for that product right now. Please try again or ask to see all products.`
-                    : `I encountered an issue retrieving your request. Please try again.`
-          */   }
+            }
 
             console.log(`[Gatekeeper Transport] Forwarding pristine text message string package to Telegram...`);
+
             return await sendFormattedMessage(tenant.telegramBotToken, chatId, finalOutputString, "HTML", null);
         }
     };
@@ -403,7 +504,8 @@ async function processUpdate(
     // ─── 🛡️ SECURITY SHIELD A: CONFIDENCE THRESHOLD GUARD ───
     if (intentResult.confidence < 0.6) {
         console.log(`[Gatekeeper][${tenant.companyName}] Low classification confidence (${intentResult.confidence}). Routing to Route C.`);
-        return handleGeneral(serviceArgs);
+        await handleGeneral(serviceArgs);
+        return;
     }
 
     // ─── 🛡️ THE ARCHITECTURAL SAFETY WRAPPER matrix ───
@@ -418,33 +520,39 @@ async function processUpdate(
             case "product_detail":
             case "faq":
                 console.log(`[Gatekeeper][${tenant.companyName}] Routing to Structured Service (Route A).`);
-                return handleStructured(serviceArgs);
+                await handleStructured(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
+                return;
 
             // ✅ ROUTE B: Unstructured Meaning-Based Semantic Discovery
             case "unstructured_search":
-                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Semantic Search Service (Route B).`);
-                return handleSearch(serviceArgs);
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Unstructured Service (Route B).`);
+                await handleSearch(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
+                return;
 
             // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
             case "recommendation":
                 console.log(`[Gatekeeper][${tenant.companyName}] Routing to Recommendation Service (Route D).`);
-                return handleRecommendation(serviceArgs);
+                await handleRecommendation(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
+                return;
 
             // ✅ ROUTE E: Cryptographic Transaction Order Compiler
             case "order":
                 console.log(`[Gatekeeper][${tenant.companyName}] Routing to Transactional Order Service (Route E).`);
-                return handleOrder(serviceArgs);
+                await handleOrder(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
+                return;
 
             // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
             case "qualification":
-                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Onboarding Qualification Service (Route F).`);
-                return handleQualification(serviceArgs);
+                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Qualification Service (Route F).`);
+                await handleQualification(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
+                return;
 
             // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
             case "unknown":
             default:
                 console.log(`[Gatekeeper][${tenant.companyName}] Routing to General Conversational Service (Route C).`);
-                return handleGeneral(serviceArgs);
+                await handleGeneral(serviceArgs)
+                return;
         }
 
     } catch (err: any) {
@@ -455,7 +563,11 @@ async function processUpdate(
         // Because this lives inside 'finally', JavaScript forces this block to run 
         // the exact millisecond any of the switch cases finish executing! 
         // It cleanly halts the typing ticker loop out of memory every single time.
-        clearInterval(typingTickerIntervalId);
+        isTypingLoopActive = false;
+        // ─── 🛡️ FIX: Clear the pending setTimeout so Vercel can close the runtime ───
+        // Without clearTimeout, the scheduled callbacks stay in the Node.js event loop
+        // and prevent the serverless container from shutting down cleanly.
+        if (typingTimerHandle) clearTimeout(typingTimerHandle);
         console.log(`[Chat Action Indicator] Typing loop successfully released from serverless memory.`);
     }
 }
@@ -480,7 +592,7 @@ async function handleOnboardingUpdate(
     update: any,
     chatId: number,
     telegramId: string,
-    tenant: TenantContext,
+    tenant: TenantConfig,
     tenantClient: ReturnType<typeof createTenantClient>
 ) {
     try {

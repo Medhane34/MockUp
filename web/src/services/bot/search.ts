@@ -1,16 +1,15 @@
-// src/services/bot/structured.service.ts
+// src/services/bot/search.service.ts
 import { getCachedSchema } from "@/lib/sanity/context"
 import { createTenantMCPClient } from "@/lib/mcp-client"
 import { streamText } from "ai"
-import { google } from "@ai-sdk/google"
 import { cleanMarkdownStream, stripMarkdown } from "@/lib/telegram/format"
 import type { TenantConfig } from "@/types/tenant"
 import type { IntentResult } from "@/lib/ai/intent"
 import type { Thread } from "chat"
 import { createTenantRedisClient } from "@/lib/upstash"
-import { createRedisState } from "@chat-adapter/state-redis"
 import { createGateway } from '@ai-sdk/gateway';
 import { BotServiceArgs } from "@/types/bot"
+import { getConversationHistory, saveToHistory } from "@/lib/ai/conversation"
 // ─── Gateway Initialization ───────────────────────────────────────────────
 // Use the GOOGLE_API_KEY from your environment variables.
 // We explicitly set autoTokenFetching to true so you don't need to manage keys.
@@ -19,32 +18,6 @@ const gateway = createGateway({
 });
 
 
-async function getConversationHistory(stateAdapter: any, threadId: string, limit = 8) {
-    try {
-        const key = `history:${threadId}`
-        const history = await stateAdapter.getList?.(key)
-        if (!history || !Array.isArray(history)) return []
-        return history.slice(-limit)
-    } catch (e) {
-        console.error("[Memory] Failed to load history:", e)
-        return []
-    }
-}
-
-async function saveToHistory(
-    stateAdapter: any,
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-) {
-    try {
-        const key = `history:${threadId}`
-        await stateAdapter.appendToList?.(key, { role, content, timestamp: Date.now() })
-    } catch (e) {
-        console.error("[Memory] Failed to save history:", e)
-    }
-}
-
 export async function handleSearch({
     tenant,
     intentResult,
@@ -52,21 +25,9 @@ export async function handleSearch({
     chatId,
     userText,
 }: BotServiceArgs): Promise<void> {
-    // 1. Tenant-isolated Redis state — match your bot.ts pattern exactly
+    // 1. Tenant-isolated Upstash Redis REST client (stateless HTTP — no connect() needed)
     const tenantRedisInstance = createTenantRedisClient(tenant)
-    // The Compatibility Shunt that stops the crash:
-    const stateAdapter = createRedisState({
-        client: {
-            // Redirect standard Key-Value commands directly to your working Upstash client
-            get: (key: string) => tenantRedisInstance.get(key),
-            set: (key: string, val: string) => tenantRedisInstance.set(key, val),
-            del: (key: string) => tenantRedisInstance.del(key),
-            // Mock the event listener hook to completely eliminate the .on() crash!
-            on: (event: string, handler: Function) => {
-                console.log(`[State Adapter Interface] Mocked listener registered for: ${event}`);
-            }
-        } as any
-    });
+
     // 2. Session-derived groqFilter — never from client input
     /*  const groqFilter = `_type in ["product", "category"] && tenantId == "${tenant.id}"`
      */
@@ -75,8 +36,6 @@ export async function handleSearch({
     const groqFilter = `_type in ["product"]`;
     // 3. Warm-load schema from Redis — eliminates initial_context tool call
     const initialContext = await getCachedSchema(tenant)
-
-
     if (!initialContext) {
         throw new Error(`[Route B][${tenant.companyName}] Schema context unavailable.`)
     }
@@ -86,7 +45,26 @@ export async function handleSearch({
         tenant.id,
         groqFilter,
         { embeddings: true }
-    )
+    );
+    // ─── 🛡️ FIX 1: DEFENSIVE CONVERSATION MEMORY COMPILATION LAYER ───
+    const rawHistory = await getConversationHistory(tenantRedisInstance, chatId, tenant).catch((err) => {
+        console.error(`[Route B][${tenant.companyName}] History fetch failed:`, err.message);
+        return [];
+    });
+    const cleanHistory = Array.isArray(rawHistory) ? rawHistory : [];
+
+    // Always preserve and format at least the active user query message
+    const formattedMessages = [
+        ...cleanHistory.map((msg: any) => ({
+            role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: msg.content || ""
+        })),
+        { role: "user" as const, content: userText },
+    ];
+    // ─── 🛡️ FIX 2: RUNTIME VALIDATION SHIELD GUARDS ───
+    console.log(`[Route A][${tenant.companyName}] Compiled messages object array count: ${formattedMessages.length}`);
+
+
     // ✅ Guard before spreading
     let mcpClosed = false
     const safeMcpClose = async () => {
@@ -95,13 +73,19 @@ export async function handleSearch({
             await mcp.close()
         }
     }
-
     if (!mcpTools.groq_query) {
         await safeMcpClose()
         throw new Error(
             `[Route B][${tenant.companyName}] groq_query tool not found in MCP registry. ` +
             `Verify Context document is published and embeddings are enabled.`
         )
+    }
+
+    if (!formattedMessages || formattedMessages.length === 0 || !formattedMessages.some(m => m.role === 'user')) {
+        console.error(`[Route A Critical Shield] Terminating execution: Compiled payload array is empty or corrupted.`);
+        await thread.post("Something went wrong processing your request tokens. Please submit your message again.");
+        await safeMcpClose();
+        return;
     }
     // Expose only semantic search — narrow tool list routes better
     const tools = {
@@ -113,9 +97,6 @@ export async function handleSearch({
                 'for meaning-based ranking. NOT for exact SKU or price lookups.',
         },
     }
-
-    // 5. Load conversation history — match your bot.ts pattern
-    const history = await getConversationHistory(stateAdapter, chatId, 8)
 
     // ✅ Enhanced — labeled clearly
     const system = `
@@ -140,11 +121,30 @@ Rules:
         const result = streamText({
             model: gateway('google/gemini-2.5-flash'),
             system,
-            messages: [
-                ...history.map((msg: any) => ({ role: msg.role, content: msg.content })),
-                { role: "user" as const, content: userText },
-            ],
+            messages: formattedMessages,
             tools,
+            providerOptions: {
+                gateway: {
+                    // 🔄 FIXED: Primary flagship model added to the front of the array list!
+                    models: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // 🔄 FIXED: Sets the precise sequence order for automated fallback switching
+                    order: [
+                        'google/gemini-2.5-flash',
+                        'google/gemini-2.5-flash-lite',
+                        'google/gemini-2.5-flash-preview-09-2025'
+                    ],
+                    // ⏱️ VERCEL TIMEOUT INCORPORATION: 
+                    // Enforces a strict 4-second timeout limit per model invocation turn.
+                    // If gemini-2.5-flash hangs for 4000ms, Vercel instantly cuts it off 
+                    // and routes the request to flash-lite, preserving execution limits!
+                    timeout: 2500,
+                    production: true
+                },
+            },
             stopWhen: ({ steps }) => steps.length >= 4, onFinish: () => safeMcpClose(),
         })
 
@@ -156,8 +156,8 @@ Rules:
 
         // Persist both in parallel — faster, and both failures are visible
         await Promise.all([
-            saveToHistory(stateAdapter, chatId, "user", userText),
-            saveToHistory(stateAdapter, chatId, "assistant", finalText),
+            saveToHistory(tenantRedisInstance, chatId, "user", userText),
+            saveToHistory(tenantRedisInstance, chatId, "assistant", finalText),
         ]).catch((err) => {
             // Non-blocking — user already received response
             // But log explicitly so you can detect history drift
