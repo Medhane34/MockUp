@@ -257,5 +257,15 @@ export default {
             description: 'Timestamp of the last monthly counter reset',
             readOnly: () => true,
         },
+        // Inside your Tenant schema fields array:
+        {
+            name: "enableInsightsDashboard",
+            title: "SaaS Premium Feature Tier: Enable AI Agent Insights Dashboard",
+            type: "boolean",
+            description: "Toggle on to grant this merchant access to the automated success scores, sentiment, and content gap metric charts.",
+            initialValue: true, // Enabled by default for standard onboarding trials
+        }
+
+
     ],
 };

@@ -25,3 +25,8 @@ qualification.md
 *.tsbuildinfo
 next-env.d.ts
 .env*
+
+# Sanity Functions
+functions/**/.env*
+functions/**/.build/
+functions/**/node_modules/

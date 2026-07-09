@@ -140,7 +140,11 @@ export async function POST(request: NextRequest) {
             // ─── 🛡️ THE FAIL-CLOSED DEADLETTER GATEWAY ───
             // When delivery attempts are exhausted, QStash pushes the payload directly 
             // to this route along with explicit error details.
-            failureUrl: failureCallbackUrl
+            failureUrl: failureCallbackUrl,
+            headers: {
+                // 🔄 AUTO-ISOLATION: Separates execution lines by tenant dynamically so they don't block each other
+                "Upstash-Queue-Name": `queue-${tenant.id}`,
+            }
         });
         console.log(`[Webhook][${tenant.companyName}] Task successfully queued inside tenant's unique QStash workspace`);
     } catch (err: any) {

@@ -8,6 +8,9 @@ import { createGateway } from '@ai-sdk/gateway';
 import { BotServiceArgs } from "@/types/bot"
 import { getConversationHistory, saveToHistory } from "@/lib/ai/conversation"
 
+import { createTenantWriteClient } from "@/sanity/client"
+import { ConversationMessage, persistInsights } from "@/lib/ai/Insights"
+
 // ─── Gateway Initialization ───────────────────────────────────────────────
 // Use the GOOGLE_API_KEY from your environment variables.
 // We explicitly set autoTokenFetching to true so you don't need to manage keys.
@@ -53,15 +56,13 @@ export async function handleStructured({
     const cleanHistory = Array.isArray(rawHistory) ? rawHistory : [];
 
     // Always preserve and format at least the active user query message
-    const formattedMessages = [
+    /* const formattedMessages: ConversationMessage[] = [
         ...cleanHistory.map((msg: any) => ({
             role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
             content: msg.content || ""
         })),
         { role: "user" as const, content: userText },
-    ];
-    // ─── 🛡️ FIX 2: RUNTIME VALIDATION SHIELD GUARDS ───
-    console.log(`[Route A][${tenant.companyName}] Compiled messages object array count: ${formattedMessages.length}`);
+    ]; */
 
     const slugHint = intentResult.intent === 'product_detail' && intentResult.params?.slug
         ? `The user is asking about a specific product. Slug hint: "${intentResult.params.slug}". 
@@ -79,12 +80,7 @@ export async function handleStructured({
             await mcp.close()
         }
     }
-    if (!formattedMessages || formattedMessages.length === 0 || !formattedMessages.some(m => m.role === 'user')) {
-        console.error(`[Route A Critical Shield] Terminating execution: Compiled payload array is empty or corrupted.`);
-        await thread.post("Something went wrong processing your request tokens. Please submit your message again.");
-        await safeMcpClose();
-        return;
-    }
+
 
 
     const systemPrompt = `
@@ -199,6 +195,19 @@ ${slugHint}
             streamAbortController.abort()
         }, 25000)
 
+        const formattedMessages = [
+            ...cleanHistory,
+            { role: 'user' as const, content: userText }
+        ]
+
+        // ─── 🛡️ FIX 2: RUNTIME VALIDATION SHIELD GUARDS ───
+        console.log(`[Route A][${tenant.companyName}] Compiled messages object array count: ${formattedMessages.length}`);
+        if (!formattedMessages || formattedMessages.length === 0 || !formattedMessages.some(m => m.role === 'user')) {
+            console.error(`[Route A Critical Shield] Terminating execution: Compiled payload array is empty or corrupted.`);
+            await thread.post("Something went wrong processing your request tokens. Please submit your message again.");
+            await safeMcpClose();
+            return;
+        }
         const result = streamText({
             model: gateway('google/gemini-2.5-flash'),
             system: systemPrompt,
@@ -259,6 +268,8 @@ ${slugHint}
         // Use text captured from onFinish (already resolved by the time stream drains)
         const safeText = stripMarkdown(capturedFinalText).trim()
             || "I found your catalog but couldn't format a response. Please try again."
+        /* const writeClient = createTenantWriteClient(tenant); */
+        // Instantiate your explicit write-capable client passing down destructuring slices
 
         // Persist both in parallel — faster, and both failures are visible
         await Promise.all([
@@ -270,6 +281,42 @@ ${slugHint}
             console.error(`[Route A][${tenant.companyName}] History persistence failed:`, err)
         })
 
+        const completelyUpdatedHistory = await getConversationHistory(tenantRedisInstance, chatId, tenant).catch(() => []);
+        const finalPristineTelemetryList = completelyUpdatedHistory.map((msg) => ({
+            role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: msg.content || ""
+        }));
+        const writeClient = createTenantWriteClient({
+            projectId: tenant.projectId,
+            dataset: tenant.dataset || 'production',
+            sanityApiToken: tenant.sanityApiToken, // Enforce Editor-role token
+            companyName: tenant.companyName
+        });
+        // ─── 🟢 STEP 3: AWAIT THE FINALE TELEMETRY WRITE ───
+        // We add the 'await' keyword right before calling persistInsights.
+        // This forces Vercel to hold the serverless thread container open until the full history array syncs!
+        console.log(`[Route A][${tenant.companyName}] Transmitting ${finalPristineTelemetryList.length} items to Sanity Insights...`);
+
+        console.log(`[Insights Debug] agentId: ${tenant.subdomain}-sales-agent`)
+        console.log(`[Insights Debug] threadId: ${chatId}`)
+        console.log(`[Insights Debug] projectId: ${tenant.projectId}`)
+        console.log(`[Insights Debug] messages count: ${finalPristineTelemetryList.length}`)
+        try {
+            console.log(`[Route A][${tenant.companyName}] Transmitting full timeline to Sanity for thread: ${chatId}`);
+
+            await persistInsights(writeClient, {
+                agentId: `${tenant.subdomain}-sales-agent`,
+                threadId: chatId, // Verified unique user chatId parameter
+                messages: finalPristineTelemetryList,
+                intentName: intentResult.intent,
+                language: intentResult.language
+            }, tenant.companyName);
+
+            console.log(`✅ [Telemetry Sync Success][${tenant.companyName}] Sealed thread: ${chatId}`);
+        } catch (telemetryError: any) {
+            // This will now catch and print the exact reason User B is failing!
+            console.error(`❌ [Route A Telemetry Crash] Write failed for thread [${chatId}]:`, telemetryError.message);
+        }
     } catch (err: any) {
         await safeMcpClose() // ✅ ensure closure on error path
         console.error(`[Route A][${tenant.companyName}] Failure:`, err.message)

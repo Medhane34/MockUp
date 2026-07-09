@@ -53,4 +53,5 @@ export interface TenantConfig {
     maxMemoryLimit: number;
     /** Account subscription access state parameter string */
     status: 'active' | 'trial' | 'suspended';
+    enableInsightsDashboard: boolean;
 }

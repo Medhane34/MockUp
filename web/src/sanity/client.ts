@@ -44,3 +44,24 @@ export function createTenantClient(tenant: Pick<TenantConfig, 'projectId' | 'dat
     tenantClientCache.set(tenant.projectId, client);
     return client;
 }
+
+/**
+ * 🟢 CREATE TENANT WRITE CLIENT
+ * Generates an authenticated, connectionless Sanity client engine wrapper possessing 
+ * write permissions to log raw chat telemetry data strings natively to the Content Lake.
+ */
+export function createTenantWriteClient(
+    tenant: Pick<TenantConfig, 'projectId' | 'dataset' | 'sanityApiToken' | 'companyName'>
+): SanityClient {
+    if (!tenant.projectId) {
+        throw new Error(`[Sanity Write Client] Tenant "${tenant.companyName || 'Unknown'}" is missing a projectId.`);
+    }
+
+    return createClient({
+        projectId: tenant.projectId,
+        dataset: tenant.dataset || 'production',
+        token: tenant.sanityApiToken,
+        apiVersion: '2026-06-01',
+        useCdn: false, // Always direct writes to guarantee instant analytics syncs
+    });
+}

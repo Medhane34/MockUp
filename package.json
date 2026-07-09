@@ -1,13 +1,12 @@
 {
-  "name": "my-sanity-template",
+  "name": "platform-root",
   "scripts": {
     "dev": "npm-run-all --parallel dev:*",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:studio": "cd studio && npm run dev",
     "deploy:studio": "cd studio && sanity deploy",
     "validate": "sanity-template-validate",
-    "typegen": "sanity typegen generate",
-    "dev:studio:schemandeploy": "cd studio && npx sanity@latest schemas deploy"
+    "typegen": "sanity typegen generate"
   },
   "workspaces": [
     "frontend",
@@ -18,7 +17,20 @@
     "npm-run-all": "^4.1.5"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.90",
+    "@sanity/blueprints": "^0.21.0",
     "@vercel/functions": "^3.7.1",
-    "vercel": "^54.18.1"
+    "ai": "^6.0.221",
+    "sanity": "5.31.1",
+    "vercel": "^54.18.1",
+    "next-sanity": "^13.1.1"
+  },
+  "catalog": {
+    "@sanity/client": "^7.23.0",
+    "@sanity/context": "^0.7.1",
+    "@sanity/functions": "^1.4.0",
+    "ai": "^6.0.207",
+    "@ai-sdk/google": "^3.0.83",
+    "sanity": "^5.31.1"
   }
 }
