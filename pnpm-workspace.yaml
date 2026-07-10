@@ -2,6 +2,5 @@
 # pnpm-workspace.yaml
 packages:
   - 'web'      # our Next.js App directory
-  - 'studio'   # our Standalone Sanity Studio directory
-  - 'functions/classify-conversations' # 🟢 NEW: Isolates our cloud function bundles into a distinct workspace package space!
+  - 'sanity'   # our Standalone Sanity Studio directory
   

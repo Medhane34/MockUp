@@ -37,7 +37,7 @@ export const handler = documentEventHandler(async ({ context, event }) => {
     projectId: context.clientOptions.projectId, // 🟢 Native platform ID
     dataset: context.clientOptions.dataset || "production",
     apiVersion: "2026-06-01",
-    token: context.clientOptions?.token, // 🟢 Automated system access token
+    token: context.clientOptions.token, // 🟢 Automated system access token
     useCdn: false,
   });
 

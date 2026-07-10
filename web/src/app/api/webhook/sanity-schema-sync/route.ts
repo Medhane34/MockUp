@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { adminClient } from "@/sanity/client";
 import { getTenantConfig } from "@/lib/tenant";
 import { invalidateTenantSchemaCache } from "@/lib/sanity/context";
-
+/*  */
 /**
  * 🔒 CRYPTOGRAPHIC NATIVE SIGNATURE VERIFIER
  * Verifies that the incoming raw HTTP payload originates genuinely from Sanity's Content Lake edge.
@@ -17,7 +17,11 @@ function isValidSanitySignature(bodyText: string, incomingSignature: string, sec
         .update(bodyText, "utf8")
         .digest("hex");
 
-    return crypto.timingSafeEqual(Buffer.from(computedSignature, "hex"), Buffer.from(incomingSignature, "hex"));
+    // Fix: Convert Node.js Buffer to Uint8Array for compatibility with crypto.timingSafeEqual
+    return crypto.timingSafeEqual(
+        new Uint8Array(Buffer.from(computedSignature, "hex")),
+        new Uint8Array(Buffer.from(incomingSignature, "hex"))
+    );
 }
 
 export async function POST(request: NextRequest) {

@@ -16,6 +16,7 @@
   ],
   "dependencies": {
     "@sanity/agent-context": "^0.6.0",
+    "@sanity/blueprints": "^0.21.0",
     "@sanity/context": "^0.7.1",
     "@sanity/icons": "^3.8.0",
     "@sanity/vision": "^6.4.0",
