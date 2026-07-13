@@ -9,8 +9,8 @@ import { BotServiceArgs } from "@/types/bot"
 import { getConversationHistory, saveToHistory } from "@/lib/ai/conversation"
 
 import { createTenantWriteClient } from "@/sanity/client"
-import { ConversationMessage, persistInsights } from "@/lib/ai/Insights"
-
+import { persistInsights } from "@/lib/ai/Insights"
+import { getAgentConfig, compileSystemPrompt } from "@/lib/sanity/getAgentConfig";
 // ─── Gateway Initialization ───────────────────────────────────────────────
 // Use the GOOGLE_API_KEY from your environment variables.
 // We explicitly set autoTokenFetching to true so you don't need to manage keys.
@@ -39,13 +39,22 @@ export async function handleStructured({
     // Promise.all lets all 3 race in parallel — total time = slowest one, not their sum.
     // Upstash REST is stateless — lrange never blocks on a connection handshake.
     console.log(`[Route A][${tenant.companyName}] Starting parallel init: schema + MCP + history...`);
-    const [initialContext, { mcp, mcpTools }, rawHistory] = await Promise.all([
+
+
+
+    const DEFAULT_PROMPT_BLUEPRINT = `
+    You are a professional sales assistant for ${tenant.companyName}.
+    Use your available tools to perform real-time inventory and catalog lookups.
+    Respond gracefully using the active user intent parameters.
+    `.trim();
+    const [initialContext, { mcp, mcpTools }, rawHistory, cmsAgentConfig] = await Promise.all([
         getCachedSchema(tenant),
         createTenantMCPClient(tenant.id, groqFilter),
         getConversationHistory(tenantRedisInstance, chatId, tenant).catch((err) => {
             console.error(`[Route A][${tenant.companyName}] History fetch failed:`, err.message);
             return [];
         }),
+        getAgentConfig(tenant, "route-a")
     ]);
     console.log(`[Route A][${tenant.companyName}] Parallel init complete.`);
 
@@ -54,24 +63,6 @@ export async function handleStructured({
     }
 
     const cleanHistory = Array.isArray(rawHistory) ? rawHistory : [];
-
-    // Always preserve and format at least the active user query message
-    /* const formattedMessages: ConversationMessage[] = [
-        ...cleanHistory.map((msg: any) => ({
-            role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
-            content: msg.content || ""
-        })),
-        { role: "user" as const, content: userText },
-    ]; */
-
-    const slugHint = intentResult.intent === 'product_detail' && intentResult.params?.slug
-        ? `The user is asking about a specific product. Slug hint: "${intentResult.params.slug}". 
-     Try: *[_type == "product" && slug.current == "${intentResult.params.slug}"][0]{...}
-     If that returns nothing, fallback to: *[_type == "product" && name match "${intentResult.params.slug}*"][0]{...}`
-        : intentResult.intent === 'product_detail'
-            ? `The user asked about: "${userText}". 
-     Extract the product name and search with: *[_type == "product" && name match "extracted_name*"][0]{...}`
-            : ''
     // ✅ Fixed — track closure state
     let mcpClosed = false
     const safeMcpClose = async () => {
@@ -81,101 +72,27 @@ export async function handleStructured({
         }
     }
 
+    // ─── 🟢 FIX: DYNAMICALLY WIRE THE ACTIVE SYSTEM PROMPT TEXT ───
+    let activeSystemPrompt = "";
+    if (cmsAgentConfig?.systemPrompt) {
+        console.log(`[Route A][${tenant.companyName}] Using active Sanity system prompt: "${cmsAgentConfig.name}"`);
 
+        activeSystemPrompt = compileSystemPrompt({
+            rawPrompt: cmsAgentConfig.systemPrompt,
+            tenant,
+            initialContext: initialContext, // Passed cleanly (Issue 3 Fixed)
+            languageCode: intentResult.language || "en",
+            intentName: intentResult.intent || "product_search",
+            userText: userText,
+            rawSlugHintTemplate: cmsAgentConfig.slugHintTemplate, // Loaded dynamically from CMS (Issue 4 Fixed)
+            targetSlug: intentResult.intent === 'product_detail' ? intentResult.params?.slug : undefined,
+            cmsAgentConfig: cmsAgentConfig
 
-    const systemPrompt = `
-You are a sales assistant for ${tenant.companyName}.
-Use tools to answer product questions.
-
-TENANT SCHEMA:
-${initialContext}
-
-CRITICAL SCHEMA FACTS — memorize these before writing any query:
-- Product type is exactly: _type == "product"
-- SKU field is: ProductSku (capital P — NOT productSku)
--  slug is an OBJECT — always query with slug.current:
-  *[_type == "product" && slug.current == "mac-book-pro"]
-- To filter by category name: categoryRef->title == "Electronics"
-- To get category name in projection: categoryRef->{title}
-- Never assume a product doesn't exist after one failed query.
-  Try alternative field combinations before saying nothing was found.
-- Always use groq_query tool. Never answer from memory.
-- Respond in ${intentResult.language === 'am' ? 'Amharic (በአማርኛ)' : 'English'}.
-- Product Display Name: name, price, description, features
-- Category Array Reference field name: categoryRef
-- Product Slug Object: slug.current (Never query slug directly as an object, always check slug.current)
-
-QUERY RULES:
-- Always start with a broad query if unsure — never assume a product doesn't exist
-- For name search: *[_type == "product" && name match $searchTerm]
-- For all products: *[_type == "product"]{name, ProductSku, price, inStock, categoryRef->{title}}
-- Never use "productSku" lowercase — always use "ProductSku" capital P
-- Never query slug as a plain string 
-- For "mac book pro" or similar — try both slug and name match
-
-🔴 CRITICAL TOOL EXECUTION RULES (PREVENT COMPILATION CRASHES):
-1. NEVER use dollar-sign parameters (e.g. $searchTerm, $categoryName) inside the tool query string. The JSON-RPC tool cannot parse variables. You must write literal strings directly into the query text.
-2. For item details or name searches, ALWAYS use case-insensitive lower-case matching filters combined with a wildcard star operator (*) to handle space discrepancies safely.
-3. Example Correct Name Lookup: *[_type == "product" && lower(name) match lower("macbook*")]{ name, ProductSku, price, inStock, description }
-4. Example Correct SKU Lookup: *[_type == "product" && lower(ProductSku) == lower("mac-pro-256")]{ name, ProductSku, price, description }
-5. Because categories are stored inside an array reference field, you must ALWAYS use the GROQ "in" operator combined with a dereferenced loop lookup path to scan for matches.
-6. You MUST call the 'groq_query' tool for EVERY single product, catalog, category, or detail question. 
-7. If you cannot extract a precise slug, you MUST call 'groq_query' with a broad wildcard matching statement to search by name.
-
-ANTI-HALLUCINATION RULES:
-1. NEVER invent categories or products not returned by a live tool lookup.
-2. If groq_query returns an empty dataset [], respond: "I searched our live catalog but couldn't find any products matching that description. Would you like to see our full product list?"
-3. Never use $parameters inside the groq_query tool string — write literal text values only.
-4. Never reference a "status" field — it does not exist in this catalog database.
-5. For category search example: *[_type == "product" && categoryRef->title match "Electronics*"]{name, ProductSku, price, inStock, "category": categoryRef->title}
-6. For all products retrieval example: *[_type == "product"]{name, ProductSku, price, inStock, "category": categoryRef->title}
-7. Never use $parameters inside the groq_query tool string — write literal text values only.
-
-🔴 KEYWORD MATCHING RULE FOR CATEGORY ARRAYS:
-- Users often add descriptive noise (e.g. typing "electronics category" or "electronics products").
-- When looking up references, NEVER match the whole phrase string. Split the text, isolate the core category word (e.g. "electronics"), and match it with a wildcard star (*).
-- Correct Category Search Blueprint: *[_type == "product" && count((categoryRef[]->title)[@ match "electronics*"]) > 0]{name, ProductSku, price, inStock, "category": categoryRef[]->title}
-- Broad Total Items Retrieval Blueprint: *[_type == "product"]{name, ProductSku, price, inStock, "category": categoryRef[]->title}
-
-CATEGORY QUERY RULES:
-- NEVER use match for category filtering — use exact == equality only
-- CORRECT: *[_type == "product" && categoryRef->title == "Electronics"]
-- WRONG:   *[_type == "product" && categoryRef->title match "electronics*"]
-- When user asks for a category, map their words to the exact titles above
-- If unsure which category matches, fetch ALL products instead:
-  *[_type == "product"]{name, ProductSku, price, inStock, "category": categoryRef->title}
-
-QUERY BLUEPRINTS:
-- For category browsing lookup example (Matches "electronics products" or "electronics"): 
-  *[_type == "product" && "electronics*" in categoryRef[]->title]{name, ProductSku, price, inStock, "category": categoryRef[]->title}
-  
-- For generic category discovery matching text variations:
-  *[_type == "product" && any(categoryRef[]->title match ["electronics*", "gadgets*"])]{name, ProductSku, price}
-
-- For a specific name search lookup: 
-  *[_type == "product" && lower(name) match lower("macbook*")]{name, ProductSku, price, inStock, description}
-
-- For all products retrieval summary: 
-  *[_type == "product"]{name, ProductSku, price, inStock, "categories": categoryRef[]->title}
-
-${slugHint}
-`.trim()
-
-    /*     const sdkCompatibleTools: Record<string, any> = {};
-        Object.keys(mcpTools).forEach((toolName) => {
-            const tool = mcpTools[toolName];
-            sdkCompatibleTools[toolName] = {
-                // Keep Sanity's exact description and parameters mapping layout untouched
-                description: tool.description,
-                parameters: tool.inputSchema || tool.parameters,
-                execute: async (args: any) => {
-                    console.log(`[Route A][Tool Invocation: ${toolName}] Executing query: ${args.query}`);
-                    // Route the request securely through your trace-correlated JSON-RPC context engine file
-                    return await runSanityContextQuery(tenant, args.query);
-                }
-            };
         });
-     */
+    } else {
+        console.log(`[Route A][${tenant.companyName}] Sanity config missing or inactive — falling back to hardcoded blueprint string`);
+        activeSystemPrompt = DEFAULT_PROMPT_BLUEPRINT;
+    }
 
     try {
         // ─── 🛡️ FIX: Capture final text in onFinish to avoid double-consuming the stream ───
@@ -210,7 +127,7 @@ ${slugHint}
         }
         const result = streamText({
             model: gateway('google/gemini-2.5-flash'),
-            system: systemPrompt,
+            system: activeSystemPrompt,
             messages: formattedMessages,
             tools: mcpTools,
             maxRetries: 1, // ⬇️ Reduced from 3 — each retry on timeout multiplies latency

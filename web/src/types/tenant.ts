@@ -6,6 +6,7 @@
  * Resolved once per incoming request and passed down across the entire call stack.
  */
 export interface TenantConfig {
+    _id: string;
     /** Sanity document tracking ID from the central platform administration registry */
     id: string;
     /** Human-readable company name (e.g., "Aligoo Store") */

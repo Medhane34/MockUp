@@ -110,6 +110,7 @@ async function handleAIResponse(thread: any, message: any, tenantConfig: TenantC
 
             // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
             case "recommendation":
+            case "qualification":
                 console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Recommendation Service (Route D).`);
                 return handleRecommendation(args);
 
@@ -117,11 +118,6 @@ async function handleAIResponse(thread: any, message: any, tenantConfig: TenantC
             case "order":
                 console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Transactional Order Service (Route E).`);
                 return handleOrder(args);
-
-            // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
-            case "qualification":
-                console.log(`[Gatekeeper][${tenantConfig.companyName}] Routing to Onboarding Qualification Service (Route F).`);
-                return handleQualification(args);
 
             // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
             case "unknown":

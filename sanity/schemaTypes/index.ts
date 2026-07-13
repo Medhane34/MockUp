@@ -8,6 +8,7 @@ import tenant from './AiAgent/tenant';
 import qualificationRules from './AiAgent/qualificationRules';
 import category from './AiAgent/category';
 import transaction from './AiAgent/transaction';
+import { agentConfig } from './AiAgent/agentConfig';
 export const schemaTypes = [
     pushSubscription,
     notificationCampaign,
@@ -18,5 +19,6 @@ export const schemaTypes = [
     tenant,
     qualificationRules,
     category,
-    transaction
+    transaction,
+    agentConfig
 ];

@@ -1,6 +1,6 @@
 import { t as __commonJSMin } from "./rolldown-runtime-C7HZzL1F.js";
 import { n as require_token_error, t as require_token_util } from "../index.js";
-//#region functions/node_modules/.pnpm/@vercel+oidc@3.2.0/node_modules/@vercel/oidc/dist/token.js
+//#region ../node_modules/.pnpm/@vercel+oidc@3.2.0/node_modules/@vercel/oidc/dist/token.js
 var require_token = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var __defProp = Object.defineProperty;
 	var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -55,4 +55,4 @@ var require_token = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 export default require_token();
 export {};
 
-//# sourceMappingURL=token-k4_wz3D3.js.map
+//# sourceMappingURL=token-U0Ejovl1.js.map

@@ -1,41 +1,45 @@
 // src/lib/ai/insights.ts
-import { saveConversation } from '@sanity/context/insights';
-import { SanityClient } from 'next-sanity';
-// In the classification function the docs show this path
+import { saveConversation } from '@sanity/context/insights'
+import { SanityClient } from 'next-sanity'
+
 export interface ConversationMessage {
-    role: 'user' | 'assistant';
-    content: string;
+    role: 'user' | 'assistant'
+    content: string
 }
+
 export interface InsightsPayload {
-    agentId: string;       // e.g., 'aligoo-sales-agent'
-    threadId: string;      // Telegram chatId
-    messages: ConversationMessage[];
-    intentName?: string;   // intentResult.intent
-    language?: string;     // intentResult.language
+    agentId: string
+    threadId: string
+    messages: ConversationMessage[]
+    intentName?: string
+    language?: string
 }
 
-/**
- * 🟢 PERSIST INSIGHTS TO CONTENT LAKE
- * Asynchronously pushes conversation turns straight to the central Sanity dataset.
- * This is NEVER awaited in the main execution path — ensuring 0ms user-facing latency.
- */
-export function persistInsights(writeClient: SanityClient, payload: InsightsPayload, companyName = "Tenant"): void {
-    console.log(`[Insights Logging][${companyName}] Initializing background telemetry tracking for user: ${payload.threadId}`);
+// ✅ Returns Promise<void> so await actually waits for the write to complete
+export function persistInsights(
+    writeClient: SanityClient,
+    payload: InsightsPayload,
+    companyName = 'Tenant'
+): Promise<void> {
+    console.log(
+        `[Insights][${companyName}] Persisting ${payload.messages.length} messages for thread: ${payload.threadId}`
+    )
 
-    // Construct the standardized structure expected by the Sanity Context Insights schema
-    saveConversation({
+    // ✅ Return the promise — caller's await now actually waits
+    return saveConversation({
         client: writeClient,
         agentId: payload.agentId,
         threadId: payload.threadId,
         messages: payload.messages,
-
     })
         .then(() => {
-            console.log(`[Insights Logging][${companyName}] Telemetry node successfully saved to Content Lake.`);
+            console.log(
+                `[Insights][${companyName}] ✅ ${payload.messages.length} messages saved to Content Lake`
+            )
         })
         .catch((err: any) => {
-            // Fail closed quietly to shield primary storefront operations from analytics latency drops
-            console.error(`[Insights Logging Error][${companyName}] Background write dropped:`, err.message);
-        });
+            // ✅ Re-throw so outer try/catch sees the real error
+            console.error(`[Insights Error][${companyName}] Write failed:`, err.message)
+            throw err
+        })
 }
-

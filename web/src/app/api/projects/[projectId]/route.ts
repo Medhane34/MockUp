@@ -2,12 +2,17 @@
 
 import { sanityManagementFetch } from '@/sanity/lib/managementClient'
 
+type RouteContext = {
+    params: Promise<{ projectId: string }>
+}
+
 export async function GET(
     _req: Request,
-    { params }: { params: { projectId: string } }
+    { params }: RouteContext
 ) {
+    const { projectId } = await params  // ← await params
     try {
-        const project = await sanityManagementFetch(`/projects/${params.projectId}`)
+        const project = await sanityManagementFetch(`/projects/${projectId}`)
         return Response.json(project)
     } catch (err) {
         return Response.json(
@@ -16,14 +21,15 @@ export async function GET(
         )
     }
 }
+
 export async function PATCH(
     req: Request,
-    { params }: { params: { projectId: string } }
+    { params }: RouteContext
 ) {
+    const { projectId } = await params  // ← await params
     try {
         const body = await req.json()
 
-        // Only allow fields supported by the Projects API
         const payload: {
             displayName?: string
             isDisabledByUser?: boolean
@@ -36,7 +42,7 @@ export async function PATCH(
         if (body.activityFeedEnabled !== undefined) payload.activityFeedEnabled = body.activityFeedEnabled
         if (body.metadata) payload.metadata = body.metadata
 
-        const project = await sanityManagementFetch(`/projects/${params.projectId}`, {
+        const project = await sanityManagementFetch(`/projects/${projectId}`, {
             method: 'PATCH',
             body: JSON.stringify(payload),
         })
@@ -50,18 +56,16 @@ export async function PATCH(
     }
 }
 
-// Delete Project
-// src/app/api/projects/[projectId]/route.ts (extended — add to same file)
-
 export async function DELETE(
     _req: Request,
-    { params }: { params: { projectId: string } }
+    { params }: RouteContext
 ) {
+    const { projectId } = await params  // ← await params
     try {
-        await sanityManagementFetch(`/projects/${params.projectId}`, {
+        await sanityManagementFetch(`/projects/${projectId}`, {
             method: 'DELETE',
         })
-        return Response.json({ success: true, deletedProjectId: params.projectId })
+        return Response.json({ success: true, deletedProjectId: projectId })
     } catch (err) {
         return Response.json(
             { error: err instanceof Error ? err.message : 'Failed to delete project.' },

@@ -8,7 +8,6 @@ import { sendFormattedMessage } from "@/lib/telegram/format";
 import { getProductList, getProductDetails, getFAQs, getProductRecommendations } from "@/lib/sanity/queries";
 import type { TenantConfig } from "@/types/tenant";
 import { createOrUpdateBuyer, getBuyer, getOrCreateBuyer, updateBuyerProfile } from "@/lib/sanity/buyer";
-import { calculateDynamicLeadStatus, getMissingParameterKeyboard, processQualification } from "@/lib/qualification";
 import { createGateway } from '@ai-sdk/gateway';
 import { getAdaptiveQualificationRule } from "@/lib/sanity/rules";
 // ─── ADD THIS TO YOUR IMPORTS AT THE TOP OF THE FILE ───
@@ -531,6 +530,7 @@ async function processUpdate(
 
             // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
             case "recommendation":
+            case "qualification":
                 console.log(`[Gatekeeper][${tenant.companyName}] Routing to Recommendation Service (Route D).`);
                 await handleRecommendation(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
                 return;
@@ -540,13 +540,6 @@ async function processUpdate(
                 console.log(`[Gatekeeper][${tenant.companyName}] Routing to Transactional Order Service (Route E).`);
                 await handleOrder(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
                 return;
-
-            // ✅ ROUTE F: Interactive Multi-Choice BANT Questionnaire Survey
-            case "qualification":
-                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Qualification Service (Route F).`);
-                await handleQualification(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
-                return;
-
             // ✅ ROUTE C: Conversational Small Talk Fallbacks ($0 Token Costs)
             case "unknown":
             default:

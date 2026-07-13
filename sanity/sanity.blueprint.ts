@@ -1,5 +1,14 @@
-import { defineBlueprint, defineDocumentFunction, defineRobotToken } from '@sanity/blueprints'
-import { env } from 'process'
+import { defineBlueprint, defineDocumentFunction } from '@sanity/blueprints'
+import 'dotenv/config'
+import process from 'node:process'
+
+const {
+  GOOGLE_API_KEY,
+  SANITY_STUDIO_PROJECT_ID,
+  SANITY_STUDIO_DATASET,
+  SANITY_API_WRITE_TOKEN,
+} = process.env
+
 
 export default defineBlueprint({
   resources: [
@@ -11,9 +20,14 @@ export default defineBlueprint({
         on: ['create', 'update'],
         filter: '_type == "sanity.agentContextConversation"'
       },
-      /*       env: {
-              GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-            } */
+      // ✅ TypeScript now knows these are string — not string | undefined
+      env: {
+        SANITY_STUDIO_PROJECT_ID: process.env.SANITY_STUDIO_PROJECT_ID!,
+        SANITY_STUDIO_DATASET: process.env.SANITY_STUDIO_DATASET!,
+        SANITY_API_WRITE_TOKEN: process.env.SANITY_API_WRITE_TOKEN_ALIGOO!,
+        GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
+        SANITY_MANAGEMENT_TOKEN: process.env.SANITY_MANAGEMENT_TOKEN!,
+      },
     }),
 
     // Same function code, deployed to Tenant B
@@ -25,8 +39,14 @@ export default defineBlueprint({
         on: ['create', 'update'],
         filter: '_type == "sanity.agentContextConversation"'
       },
+      env: {
+        SANITY_STUDIO_PROJECT_ID: process.env.SANITY_STUDIO_PROJECT_ID!,
+        SANITY_STUDIO_DATASET: process.env.SANITY_STUDIO_DATASET!,
+        SANITY_API_WRITE_TOKEN: process.env.SANITY_API_WRITE_TOKEN_MUKO!,
+        GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
+        SANITY_MANAGEMENT_TOKEN: process.env.SANITY_MANAGEMENT_TOKEN!,
+      },
     }),
   ],
 
 })
-
