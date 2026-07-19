@@ -1,0 +1,6 @@
+
+# pnpm-workspace.yaml
+packages:
+  - 'web'      # our Next.js App directory
+  - 'sanity'   # our Standalone Sanity Studio directory
+  

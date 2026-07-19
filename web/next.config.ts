@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import withPWAInit from "@ducanh2912/next-pwa";
+import { withWorkflow } from "workflow/next";
 
 // 1. Initialize the PWA configuration
 const withPWA = withPWAInit({
@@ -17,8 +18,6 @@ const withPWA = withPWAInit({
 
 // 2. Define your base configuration
 const nextConfig: NextConfig = {
-  // Add this block to resolve the Turbopack error
-
   images: {
     remotePatterns: [
       {
@@ -30,4 +29,4 @@ const nextConfig: NextConfig = {
 };
 
 // 3. Export the wrapped configuration
-export default withPWA(nextConfig);
+export default withWorkflow(withPWA(nextConfig));

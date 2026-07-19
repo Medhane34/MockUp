@@ -1,6 +1,6 @@
 // src/app/api/webhook/telegram/route.ts
 import { NextRequest } from "next/server";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 import { adminClient } from "@/sanity/client";
 import { createTenantRedisClient, createTenantQStashClient } from "@/lib/upstash";
 
@@ -10,9 +10,9 @@ export const maxDuration = 10;
 // ─── Tenant Resolution Cache ───────────────────────────────────────────────────
 // Keyed by telegramWebhookSecret. TTL = 5 minutes.
 const TENANT_CACHE_TTL = 5 * 60 * 1000;
-const tenantBySecretCache = new Map<string, { tenant: TenantContext; expires: number }>();
+const tenantBySecretCache = new Map<string, { tenant: TenantConfig; expires: number }>();
 
-async function resolveTenantBySecret(secret: string): Promise<TenantContext | null> {
+async function resolveTenantBySecret(secret: string): Promise<TenantConfig | null> {
     // 1. Check cache first
     const cached = tenantBySecretCache.get(secret);
     if (cached && Date.now() < cached.expires) {
@@ -21,7 +21,7 @@ async function resolveTenantBySecret(secret: string): Promise<TenantContext | nu
 
     // 2. Query admin project for the matching tenant
     try {
-        const tenant = await adminClient.fetch<TenantContext | null>(
+        const tenant = await adminClient.fetch<TenantConfig | null>(
             `*[_type == "tenant" && telegramWebhookSecret == $secret && status in ["active", "trial"]][0]{
                 "id": _id,
                 companyName,
@@ -112,9 +112,20 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Determine the dynamic process callback URL based on headers (works locally & in production)
+    const baseHost = (process.env.NEXT_PUBLIC_VERCEL_URL || process.env.VERCEL_URL || "https://aligoo-mockup.vercel.app")
+        .trim()
+        .replace(/\/+$/, "");
     const host = request.headers.get("host") || process.env.VERCEL_URL || "";
     const protocol = host.includes("localhost") ? "http" : "https";
     const processUrl = `${protocol}://${host}/api/webhook/telegram/process`;
+    const failureCallbackUrl = `${baseHost}/api/webhook/telegram/failure`;
+    // ─── 🟢 TELEMETRY LOGS PLACEMENT: AUDIT YOUR WEBHOOK PATHS ───
+    console.log(`\n🚀 [QStash Routing Matrix] CONSTRUCTED URL ENVELOPE:`);
+    console.log(`----------------------------------------------------------------------`);
+    console.log(`Target Processing Path: ${processUrl}`);
+    console.log(`Target Failure Callback: ${failureCallbackUrl}`);
+    console.log(`----------------------------------------------------------------------\n`);
+
 
     console.log(`[Webhook][${tenant.companyName}] Queuing Telegram update ${updateId || "unknown"} to isolated QStash target: ${processUrl}`);
 
@@ -124,8 +135,16 @@ export async function POST(request: NextRequest) {
         await tenantQStash.publishJSON({
             url: processUrl,
             body: { update, tenant },
-            // Dynamically pass their unique project Topic identifier parameters if needed by your setup
-            // topic: tenant.qstashTopicId 
+            retries: 2,
+            retryAfter: "5s",
+            // ─── 🛡️ THE FAIL-CLOSED DEADLETTER GATEWAY ───
+            // When delivery attempts are exhausted, QStash pushes the payload directly 
+            // to this route along with explicit error details.
+            failureUrl: failureCallbackUrl,
+            headers: {
+                // 🔄 AUTO-ISOLATION: Separates execution lines by tenant dynamically so they don't block each other
+                "Upstash-Queue-Name": `queue-${tenant.id}`,
+            }
         });
         console.log(`[Webhook][${tenant.companyName}] Task successfully queued inside tenant's unique QStash workspace`);
     } catch (err: any) {

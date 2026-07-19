@@ -1,0 +1,11 @@
+{
+    "name": "classify-conversations",
+    "version": "1.0.0",
+    "dependencies": {
+        "@sanity/client": "catalog:",
+        "@sanity/context": "catalog:",
+        "@sanity/functions": "catalog:",
+        "ai": "catalog:",
+        "sanity": "catalog:"
+    }
+}

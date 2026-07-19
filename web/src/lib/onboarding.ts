@@ -1,6 +1,6 @@
 // src/lib/onboarding.ts
 import type { SanityClient } from "next-sanity";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 import { createOrUpdateBuyer } from "./sanity/buyer";
 
 type OnboardingResult = {
@@ -21,7 +21,7 @@ export async function handleOnboarding(
     update: any,
     existingBuyer: any,
     telegramId: string,
-    tenant: TenantContext,
+    tenant: TenantConfig,
     tenantClient: SanityClient
 ): Promise<OnboardingResult> {
     const msg = update.message ?? update.edited_message ?? null;

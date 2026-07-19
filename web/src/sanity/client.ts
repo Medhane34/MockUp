@@ -1,6 +1,6 @@
 // src/sanity/client.ts
 import { createClient, type SanityClient } from "next-sanity";
-import type { TenantContext } from "@/types/tenant";
+import type { TenantConfig } from "@/types/tenant";
 
 /**
  * Platform admin client — connects to YOUR Sanity project.
@@ -25,7 +25,7 @@ const tenantClientCache = new Map<string, SanityClient>();
  * Creates (or returns a cached) Sanity client for a specific tenant's isolated project.
  * @param tenant - The resolved TenantContext for this request
  */
-export function createTenantClient(tenant: Pick<TenantContext, 'projectId' | 'dataset' | 'sanityApiToken' | 'companyName'>): SanityClient {
+export function createTenantClient(tenant: Pick<TenantConfig, 'projectId' | 'dataset' | 'sanityApiToken' | 'companyName'>): SanityClient {
     const cached = tenantClientCache.get(tenant.projectId);
     if (cached) return cached;
 
@@ -43,4 +43,25 @@ export function createTenantClient(tenant: Pick<TenantContext, 'projectId' | 'da
 
     tenantClientCache.set(tenant.projectId, client);
     return client;
+}
+
+/**
+ * 🟢 CREATE TENANT WRITE CLIENT
+ * Generates an authenticated, connectionless Sanity client engine wrapper possessing 
+ * write permissions to log raw chat telemetry data strings natively to the Content Lake.
+ */
+export function createTenantWriteClient(
+    tenant: Pick<TenantConfig, 'projectId' | 'dataset' | 'sanityApiToken' | 'companyName'>
+): SanityClient {
+    if (!tenant.projectId) {
+        throw new Error(`[Sanity Write Client] Tenant "${tenant.companyName || 'Unknown'}" is missing a projectId.`);
+    }
+
+    return createClient({
+        projectId: tenant.projectId,
+        dataset: tenant.dataset || 'production',
+        token: tenant.sanityApiToken,
+        apiVersion: '2026-06-01',
+        useCdn: false, // Always direct writes to guarantee instant analytics syncs
+    });
 }

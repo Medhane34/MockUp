@@ -1,0 +1,271 @@
+// studio/schemaTypes/AiAgent/tenant.ts
+export default {
+    name: 'tenant',
+    title: 'Tenant Configuration',
+    type: 'document',
+    fields: [
+        // ─── 1. Identity & Routing ───────────────────────────────────────────────
+        {
+            name: 'companyName',
+            title: 'Company Name',
+            type: 'string',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'subdomain',
+            title: 'Assigned Subdomain',
+            type: 'slug',
+            description: 'The prefix identifier (e.g., "aligoo" for aligoo.yourplatform.com)',
+            options: { source: 'companyName' },
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'niche',
+            title: 'Business Niche',
+            type: 'string',
+            options: {
+                list: [
+                    { title: 'E-commerce', value: 'ecommerce' },
+                    { title: 'Service / Booking', value: 'services' },
+                    { title: 'Travel Agency', value: 'travel' },
+                ],
+            },
+            validation: (Rule: any) => Rule.required(),
+        },
+
+        // ─── 2. Support & Branding ───────────────────────────────────────────────
+        {
+            name: 'supportHandle',
+            title: 'Support Handle',
+            type: 'string',
+            description: 'Telegram handle or contact used in AI responses (e.g., "@aligoo_support")',
+            validation: (Rule: any) => Rule.required(),
+        },
+        { name: 'logo', type: 'image' },
+        { name: 'primaryColor', title: 'Primary Color', type: 'string', description: 'Hex color code (e.g., #3B82F6)' },
+
+        // ─── 3. Telegram Bot Credentials ────────────────────────────────────────
+        {
+            name: 'telegramBotToken',
+            title: 'Telegram Bot Token',
+            type: 'string',
+            description: 'The secret HTTP API token provided by BotFather',
+        },
+        {
+            name: 'telegramWebhookSecret',
+            title: 'Telegram Webhook Secret Token',
+            type: 'string',
+            description: 'Used to validate incoming x-telegram-bot-api-secret-token headers from Telegram',
+        },
+
+        // ─── 4. Webhook Registration Status ─────────────────────────────────────
+        {
+            name: 'webhookRegistered',
+            title: 'Webhook Registered',
+            type: 'boolean',
+            description: 'Whether the Telegram webhook has been successfully registered for this tenant',
+            initialValue: false,
+        },
+        {
+            name: 'webhookUrl',
+            title: 'Webhook URL',
+            type: 'string',
+            description: 'The full Vercel webhook endpoint URL for this tenant',
+        },
+
+        // ─── 5. AI Directives & Personalization ─────────────────────────────────
+        {
+            name: 'systemPrompt',
+            title: 'AI Persona System Prompt',
+            type: 'text',
+            description: 'Optional override: the core rules, constraints, and operational persona for the AI. Leave blank to use the auto-generated niche-based prompt.',
+        },
+        {
+            name: 'conversionGoalDescription',
+            title: 'Conversion Goal Description',
+            type: 'string',
+            description: 'Tell the AI what the final goal is (e.g., "Get them to fill the booking link", "Add items to cart")',
+        },
+
+        // ─── 6. Tenant Sanity.io Project (Data Isolation) ───────────────────────
+        {
+            name: 'projectId',
+            title: 'Sanity Project ID',
+            type: 'string',
+            description: 'Sanity.io Project ID for this tenant\'s isolated data project',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'dataset',
+            title: 'Sanity Dataset',
+            type: 'string',
+            description: 'Sanity.io dataset name (usually "production")',
+            initialValue: 'production',
+        },
+        {
+            name: 'sanityApiToken',
+            title: 'Sanity API Token',
+            type: 'string',
+            description: 'Read/write token for this tenant\'s Sanity project. Also stored as a Vercel environment variable for security. Update here when rotating tokens.',
+        },
+        {
+            name: 'sanityWebhookSecret',
+            title: 'Sanity Webhook Secret',
+            type: 'string',
+            description: 'Secret to validate incoming webhooks from this tenant\'s Sanity project',
+        },
+        // Add this surgically inside your fields array inside studio/schemaTypes/AiAgent/tenant.ts
+        {
+            name: "contextSlug", // 🟢 Fixed naming to match your application logic routers
+            title: "AI Context Routing Slug",
+            type: "slug",
+            options: {
+                source: (doc: any) => `${doc.companyName || "sales-agent"}-context`,
+                maxLength: 200,
+                slugify: (input: string) => input.toLowerCase().replace(/\s+/g, "-").slice(0, 200)
+            },
+            description: "The matching context slug defined inside this tenant's Studio Agent configuration document (e.g. 'sales-agent-context'). Used to target RAG schema retrievals.",
+            validation: (Rule: any) => Rule.required(),
+        },
+        // Add this field right below the contextSlug inside your tenant.ts file
+        {
+            name: "globalContextFilter",
+            title: "Global Context Safety Filter",
+            type: "string",
+            initialValue: '_type in ["product", "category", "faq"]',
+            description: "Platform-level backup security gate. Rigidly locks down the document types the AI is mathematically allowed to query.",
+            validation: (Rule: any) => Rule.required(),
+        },
+        // ─── 8. Redis Configuration (Data Isolation) ───────────────────────
+        {
+            name: 'redisUrl',
+            title: 'Redis URL',
+            type: 'string',
+            description: 'Upstash Redis REST API URL for this tenant (https://eu1-xxx.upstash.io)',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'redisToken',
+            title: 'Redis Token',
+            type: 'string',
+            description: 'Upstash Redis REST API Token (secret)',
+            validation: (Rule: any) => Rule.required(),
+        },
+
+        // ─── 9. QStash Configuration (Queue Isolation) ──────────────────────
+        {
+            name: "qstashUrl",
+            title: "QStash URL",
+            type: "string",
+            description: "Upstash QStash API URL for this tenant",
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'qstashToken',
+            title: 'QStash Token',
+            type: 'string',
+            description: 'Upstash QStash API token for this tenant',
+            validation: (Rule: any) => Rule.required(),
+        },
+        // Add these to your fields array inside tenant.ts
+        {
+            name: 'qstashCurrentSigningKey',
+            title: 'QStash Current Signing Key',
+            type: 'string',
+            description: 'The current signing key from this tenant\'s unique QStash dashboard setup.',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'qstashNextSigningKey',
+            title: 'QStash Next Signing Key',
+            type: 'string',
+            description: 'The next signing key from this tenant\'s unique QStash dashboard setup.',
+            validation: (Rule: any) => Rule.required(),
+        },
+
+        /*   {
+              name: 'qstashTopicId',
+              title: 'QStash Topic ID',
+              type: 'string',
+              description: 'Topic ID for AI task queue (e.g., "ai-tasks-muko")',
+  
+          },
+   */
+        // ─── 10. AI Usage Limits & Billing ──────────────────────────────────
+        {
+            name: 'maxMemoryLimit',
+            title: 'Max Memory Limit',
+            type: 'number',
+            initialValue: 5, // messages
+            description: 'Maximum amount of AI memory this tenant can use per month',
+        },
+        {
+            name: 'monthlyAiTokenLimit',
+            title: 'Monthly AI Token Limit',
+            type: 'number',
+            initialValue: 1000000, // 1M tokens
+            description: 'Maximum tokens this tenant can use per month',
+        },
+        {
+            name: 'currentMonthTokens',
+            title: 'Current Month Tokens Used',
+            type: 'number',
+            initialValue: 0,
+            readOnly: () => true,
+        },
+        {
+            name: 'monthlyAiCostLimit',
+            title: 'Monthly AI Cost Limit ($)',
+            type: 'number',
+            initialValue: 100, // $100/month
+            description: 'Maximum cost in USD this tenant can incur',
+        },
+        // ─── 7. Limits & Billing ────────────────────────────────────────────────
+        {
+            name: 'status',
+            title: 'Status',
+            type: 'string',
+            options: {
+                list: [
+                    { title: 'Active', value: 'active' },
+                    { title: 'Trial', value: 'trial' },
+                    { title: 'Suspended', value: 'suspended' },
+                ],
+            },
+            initialValue: 'trial',
+            validation: (Rule: any) => Rule.required(),
+        },
+        {
+            name: 'dailyMessageLimit',
+            title: 'Daily Message Limit',
+            type: 'number',
+            initialValue: 1000,
+            description: 'Maximum AI messages allowed per day across all users of this tenant',
+        },
+        {
+            name: 'monthlyMessageCount',
+            title: 'Monthly Message Count',
+            type: 'number',
+            initialValue: 0,
+            description: 'Running total of AI messages sent this billing period (reset on lastResetAt)',
+            readOnly: () => true,
+        },
+        {
+            name: 'lastResetAt',
+            title: 'Last Billing Reset',
+            type: 'datetime',
+            description: 'Timestamp of the last monthly counter reset',
+            readOnly: () => true,
+        },
+        // Inside your Tenant schema fields array:
+        {
+            name: "enableInsightsDashboard",
+            title: "SaaS Premium Feature Tier: Enable AI Agent Insights Dashboard",
+            type: "boolean",
+            description: "Toggle on to grant this merchant access to the automated success scores, sentiment, and content gap metric charts.",
+            initialValue: true, // Enabled by default for standard onboarding trials
+        }
+
+
+    ],
+};
