@@ -4,6 +4,8 @@ import { createGateway } from "@ai-sdk/gateway";
 import { z } from "zod";
 import { updateBuyerProfile } from './sanity/buyer';
 import type { TenantConfig } from '@/types/tenant';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
 
 const gateway = createGateway({
     apiKey: process.env.AI_GATEWAY_API_KEY,
@@ -29,21 +31,41 @@ const vercelGateway = createGateway({
  * Invisibly parses customer budget choices and needs straight from conversational text.
  */
 export async function shadowExtractQualification(userMessage: string): Promise<any> {
+
+    const explicitApiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+
+    if (!explicitApiKey) {
+        console.warn("[Shadow AI] Skipped: GOOGLE_API_KEY is not configured inside the serverless vault environment.");
+        return null;
+    }
+
+    // Initialize a raw, un-proxied Google provider connection instance pointing directly to Google's master servers
+    const directGoogleProvider = createGoogleGenerativeAI({
+        apiKey: explicitApiKey.trim(),
+    });
+
     try {
         const { object } = await generateObject({
-            model: vercelGateway('google/gemini-2.5-flash'),
+            model: directGoogleProvider('gemini-1.5-flash'),
             schema: z.object({
                 coreNeed: z.string().optional().describe("Clean extracted summary of what specific item or service they seek (e.g. 'Addis city tour', 'historical package'). Leave blank if greeting."),
-                budgetRange: z.enum(['under_50k', '50k_100k', '100k_200k', '200k_500k', '500k_1M', 'over_1M']).optional().describe("Inferred budget enum range matching the business schema."),
+                budgetRange: z.enum([
+                    'UNDER_50K',
+                    '50K_100K',
+                    '100K_200K',
+                    '200K_500K',
+                    '500K_1M',
+                    'OVER_1M'
+                ]).optional().describe("Inferred budget enum range matching the business schema precisely."),
             }),
             maxRetries: 3,
-            providerOptions: {
+            /* providerOptions: {
                 google: { useProduction: true },
                 gateway: {
                     order: ['google'],
                     models: ['google/gemini-2.5-flash-preview-09-2025'],
                 },
-            },
+            }, */
             system: `You are an invisible background data extraction worker. 
                    Analyze the text and isolate buying parameters. Do NOT guess fields.`,
             prompt: userMessage,

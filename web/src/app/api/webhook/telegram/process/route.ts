@@ -17,10 +17,13 @@ import { getTenantConfig } from "@/lib/tenant";
 import { handleGeneral } from "@/services/bot/general";
 import { handleOrder } from "@/services/bot/order";
 import { handleQualification } from "@/services/bot/qualification";
-import { handleRecommendation } from "@/services/bot/recommendation";
 import { handleSearch } from "@/services/bot/search";
 import { handleStructured } from "@/services/bot/structured";
 import { BotServiceArgs } from "@/types/bot";
+// ─── 🚀 ROUTE D: VERCEL WORKFLOW SDK ───
+import { start } from "workflow/api";
+import { recommendationWorkflow } from "@/workflows/recommendation";
+import type { RecommendationWorkflowPayload } from "@/workflows/recommendation";
 import { createRedisState } from "@chat-adapter/state-redis";
 
 
@@ -529,11 +532,23 @@ async function processUpdate(
                 return;
 
             // ✅ ROUTE D: BANT Survey State Consolidation Recommendation Matrix
+            // 🚀 Now powered by Vercel Workflows — durable 4-step execution graph.
+            // fire-and-forget: the processor acks QStash immediately; the workflow
+            // engine manages step retries and checkpointing independently.
             case "recommendation":
-            case "qualification":
-                console.log(`[Gatekeeper][${tenant.companyName}] Routing to Recommendation Service (Route D).`);
-                await handleRecommendation(serviceArgs); // 🔄 FIXED: Waits for the full stream to complete!
+            case "qualification": {
+                console.log(`[Gatekeeper][${tenant.companyName}] Launching durable Workflow for Route D.`);
+                const workflowPayload: RecommendationWorkflowPayload = {
+                    tenant: tenantConfig,
+                    chatId,
+                    telegramId,
+                    userText,
+                    intentResult,
+                };
+                // start() is non-blocking: enqueues the workflow and returns immediately
+                await start(recommendationWorkflow, [workflowPayload]);
                 return;
+            }
 
             // ✅ ROUTE E: Cryptographic Transaction Order Compiler
             case "order":

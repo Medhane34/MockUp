@@ -55,6 +55,7 @@ export async function handleRecommendation({
     // Build the consolidated profile context values list
     const updatedProfile = {
         coreNeed: shadowData?.coreNeed || cachedBantData?.coreNeed || "Catalog Exploration",
+        // 🟢 FIXED: Cleans the inferred budget text value to keep states uniform
         budgetRange: shadowData?.budgetRange || cachedBantData?.budgetRange || "",
         interests: cachedBantData?.interests || [intentResult.intent || "recommendations"]
     };
@@ -70,8 +71,9 @@ export async function handleRecommendation({
             updateBuyerProfile(chatId, writeClient, {
                 coreNeed: updatedProfile.coreNeed,
                 interests: updatedProfile.interests,
-                firstName: updateBuyerProfile.name,
-                budgetRange: updatedProfile.budgetRange,
+                // 🟢 FIXED: Replaces underscores with spaces to comply perfectly with Studio drop-downs!
+                // e.g., "50K_100K" becomes "50K 100K" natively before committing the patch
+                budgetRange: updatedProfile.budgetRange ? updatedProfile.budgetRange.replace("_", " ") : "",
                 qualificationStage: stage,
                 leadScore: score
             })

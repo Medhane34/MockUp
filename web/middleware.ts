@@ -45,6 +45,8 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/_next/static') ||
         pathname.startsWith('/_next/image') ||
         pathname.startsWith('/api/webhook') ||
+        pathname.startsWith('/api/workflow') ||
+        pathname.startsWith('/.well-known/workflow') ||
         pathname.startsWith('/favicon.ico') ||
         pathname === '/404'
     ) {
@@ -109,6 +111,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        '/((?!api/webhook|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+        '/((?!api/webhook|api/workflow|.well-known/workflow|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
     ],
 };

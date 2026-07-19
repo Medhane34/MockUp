@@ -1,5 +1,9 @@
 import { sanityManagementFetch } from '@/sanity/lib/managementClient'
 
+// Opt out of static prerendering — this page calls the Sanity Management API
+// which requires a server-only token not available at build time.
+export const dynamic = 'force-dynamic'
+
 import { StatsCards } from './components/StatsCards'
 import { SanityProject } from 'next-sanity'
 import { ProjectsTable } from './components/ProjectsTable'
